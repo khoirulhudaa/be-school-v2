@@ -99,6 +99,7 @@ const allowedOrigins = [
   "https://smkn13jkt.kiraproject.id",
   "https://new.sman25-jkt.sch.id",
   "https://sman78-jkt.sch.id",
+  "https://smksmaarif.kiraproject.id",
   "https://sman25-jkt.sch.id",
   "https://sman101.kiraproject.id",
   "https://sman78.kiraproject.id",
