@@ -3135,3 +3135,44 @@ exports.shareRekapHarian = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+exports.updateLocation = async (req, res) => {
+  const { id, lat, lng } = req.body;
+  await Student.update({ latitude: lat, longitude: lng }, { where: { id } });
+  res.json({ success: true, message: 'Lokasi diperbarui' });
+};
+
+// --- IZIN ---
+exports.submitIzin = async (req, res) => {
+  try {
+    const data = await AbsenceRequest.create(req.body);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// --- BIRO JODOH (Radius Search) ---
+exports.getNearbyStudents = async (req, res) => {
+  const { lat, lng, radius = 10, schoolId } = req.query;
+  
+  // Formula Haversine untuk mencari jarak berdasarkan lat/lng di MySQL/Postgres
+  const distanceQuery = `(6371 * acos(cos(radians(${lat})) * cos(radians(latitude)) * cos(radians(longitude) - radians(${lng})) + sin(radians(${lat})) * sin(radians(latitude))))`;
+
+  try {
+    const students = await Student.findAll({
+      attributes: { 
+        include: [[Sequelize.literal(distanceQuery), 'distance']] 
+      },
+      where: {
+        schoolId,
+        isActive: true,
+        [Op.and]: Sequelize.where(Sequelize.literal(distanceQuery), '<=', radius)
+      },
+      order: Sequelize.literal('distance ASC')
+    });
+    res.json({ success: true, data: students });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

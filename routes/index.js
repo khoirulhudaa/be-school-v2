@@ -42,6 +42,11 @@
     const orangTua = require('./orangTuaRoutes');
     const admin = require('./adminRoutes');
     const faceRouter = require('./face');
+    const absenRoutes = require('./absenRoutes');
+    const aktivitasRoutes = require('./aktivitasRoutes');
+    const biroJodohRoutes = require('./biroJodohRoutes');
+
+    // ... middleware lainnya
 
     router.use('/auth', require('./authRoutes'));
     router.use('/profile', require('./updateProfileRouter'));
@@ -60,6 +65,9 @@
     router.use('/sejarah', sejarahSekolahRouter); 
     router.use('/admin', admin); 
     router.use('/guruTendik', guruTendikRouter); 
+    router.use('/izin', absenRoutes);
+    router.use('/aktivitas', aktivitasRoutes);
+    router.use('/birojodoh', biroJodohRoutes);
     router.use('/ppdb', ppdbRouter); 
     router.use('/osis', osisRouter); 
     router.use('/wa', waRouter); 

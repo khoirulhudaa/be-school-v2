@@ -61,7 +61,15 @@ const Student = sequelize.define('Student', {
   fcmToken: {
     type: DataTypes.TEXT, // Gunakan TEXT karena token FCM cukup panjang
     allowNull: true
-  }
+  },
+    latitude: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: true,
+  },
+  longitude: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: true,
+  },
 }, {
   tableName: 'siswa',
   indexes: [
