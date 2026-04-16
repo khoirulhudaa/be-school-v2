@@ -11,5 +11,6 @@ const upload = multer({
 // Endpoint: /api/izin (atau sesuaikan di app.js)
 router.post('/', upload.single('lampiran'), absenController.submitIzin);
 router.get('/history/:siswaId', absenController.getIzinHistory);
+router.patch('/status/:id', absenController.updateIzinStatus);
 
 module.exports = router;

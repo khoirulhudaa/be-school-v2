@@ -39,6 +39,23 @@ exports.submitIzin = async (req, res) => {
     }
 };
 
+exports.updateIzinStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // 'approved' atau 'rejected'
+
+    const izin = await Izin.findByPk(id);
+    if (!izin) return res.status(404).json({ success: false, message: 'Data tidak ditemukan' });
+
+    izin.status = status;
+    await izin.save();
+
+    res.json({ success: true, message: `Izin berhasil di-${status}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 exports.getIzinHistory = async (req, res) => {
     try {
         const { siswaId } = req.params;
