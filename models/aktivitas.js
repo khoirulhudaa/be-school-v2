@@ -10,4 +10,4 @@ const Activity = sequelize.define('Activity', {
   points: { type: DataTypes.JSON } // Simpan array [{lat, lng, ts}]
 });
 
-module.exports = Activity;
+module.exports = Activity;  

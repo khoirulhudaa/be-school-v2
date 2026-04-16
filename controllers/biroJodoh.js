@@ -1,12 +1,13 @@
 const Student = require('../models/siswa');
 const { Op, Sequelize } = require('sequelize');
+const StudentLike = require('../models/siswaLike');
 
 // --- BIRO JODOH (Radius Search) ---
 exports.getNearbyStudents = async (req, res) => {
-  const { lat, lng, radius = 10, schoolId } = req.query;
-  
-  // Formula Haversine untuk mencari jarak berdasarkan lat/lng di MySQL/Postgres
-  const distanceQuery = `(6371 * acos(cos(radians(${lat})) * cos(radians(latitude)) * cos(radians(longitude) - radians(${lng})) + sin(radians(${lat})) * sin(radians(latitude))))`;
+  const { lat, lng, radius = 10, schoolId, currentSiswaId } = req.query;
+
+  // Proteksi agar acos tidak error dan presisi terjaga
+  const distanceQuery = `(6371 * acos(LEAST(1, GREATEST(-1, cos(radians(${lat})) * cos(radians(latitude)) * cos(radians(longitude) - radians(${lng})) + sin(radians(${lat})) * sin(radians(latitude))))))`;
 
   try {
     const students = await Student.findAll({
@@ -16,6 +17,8 @@ exports.getNearbyStudents = async (req, res) => {
       where: {
         schoolId,
         isActive: true,
+        id: { [Op.ne]: currentSiswaId }, // Jangan jodohkan dengan diri sendiri
+        latitude: { [Op.ne]: null },    // Pastikan koordinat ada
         [Op.and]: Sequelize.where(Sequelize.literal(distanceQuery), '<=', radius)
       },
       order: Sequelize.literal('distance ASC')
