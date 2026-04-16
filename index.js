@@ -19,10 +19,14 @@ const { Server } = require('socket.io');
 
 const Student = require('./models/siswa');
 const Parent = require('./models/orangTua');
+const Izin = require('./models/izin');
 
 // Definisikan hubungan di sini, di luar file model masing-masing
 Parent.hasMany(Student, { foreignKey: 'parentId', as: 'children' });
 Student.belongsTo(Parent, { foreignKey: 'parentId', as: 'parent' });
+
+Student.hasMany(Izin, { foreignKey: 'siswaId', as: 'izins' });
+Izin.belongsTo(Student, { foreignKey: 'siswaId', as: 'Siswa' }); 
 
 // Import semua routes dari satu file
 const apiRoutes = require('./routes');  // → routes/index.js
