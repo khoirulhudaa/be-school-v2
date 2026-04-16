@@ -1,6 +1,7 @@
 const Izin = require('../models/izin'); // Pastikan sudah dibuat
 const cloudinary = require('cloudinary').v2;
 const streamifier = require('streamifier');
+const Student = require('../models/siswa');
 
 // Konfigurasi Cloudinary
 cloudinary.config({
@@ -8,6 +9,35 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// Di absenController.js
+exports.getAllIzin = async (req, res) => {
+    try {
+        const { search } = req.query;
+        let whereCondition = {};
+
+        if (search) {
+            whereCondition = {
+                // Menggunakan '$Alias.field$' untuk filter Eager Loading
+                '$Siswa.name$': { [Op.like]: `%${search}%` } 
+            };
+        }
+
+        const data = await Izin.findAll({
+            where: whereCondition,
+            include: [{
+                model: Student, // Pastikan diimport di atas
+                as: 'Siswa',
+                attributes: ['name', 'nisn', 'class'] // Mengambil kolom yang ada di model Student
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.json({ success: true, data });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
 
 // --- 2. MANAJEMEN IZIN ---
 exports.submitIzin = async (req, res) => {

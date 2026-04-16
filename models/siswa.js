@@ -86,8 +86,19 @@ const Student = sequelize.define('Student', {
       unique: true,
       fields: ['schoolId', 'nis'],
       name: 'unique_nis_per_school'
-    }
+    },
   ]
 }); 
+
+Student.associate = (models) => {
+  // Relasi ke Orang Tua (sudah ada di field references, tapi perlu didefinisikan secara formal)
+  Student.belongsTo(models.Parent, { foreignKey: 'parentId', as: 'parent' });
+
+  // Relasi Baru: Satu Siswa bisa punya banyak pengajuan Izin
+  Student.hasMany(models.Izin, { 
+    foreignKey: 'siswaId', 
+    as: 'izins' 
+  });
+};
 
 module.exports = Student;
