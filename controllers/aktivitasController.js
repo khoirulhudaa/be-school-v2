@@ -1,4 +1,5 @@
 const Activity = require('../models/aktivitas'); // Pastikan sudah dibuat
+const Student = require('../models/siswa');
 
 exports.syncActivity = async (req, res) => {
     try {
