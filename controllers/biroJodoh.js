@@ -1,13 +1,6 @@
 const Student = require('../models/siswa');
 const { Op, Sequelize } = require('sequelize');
 
-// --- UPDATE LOKASI SISWA ---
-exports.updateLocation = async (req, res) => {
-  const { id, lat, lng } = req.body;
-  await Student.update({ latitude: lat, longitude: lng }, { where: { id } });
-  res.json({ success: true, message: 'Lokasi diperbarui' });
-};
-
 // --- BIRO JODOH (Radius Search) ---
 exports.getNearbyStudents = async (req, res) => {
   const { lat, lng, radius = 10, schoolId } = req.query;

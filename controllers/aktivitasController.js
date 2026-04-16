@@ -25,3 +25,10 @@ exports.getActivityHistory = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+
+// --- UPDATE LOKASI SISWA ---
+exports.updateLocation = async (req, res) => {
+  const { id, lat, lng } = req.body;
+  await Student.update({ latitude: lat, longitude: lng }, { where: { id } });
+  res.json({ success: true, message: 'Lokasi diperbarui' });
+};
