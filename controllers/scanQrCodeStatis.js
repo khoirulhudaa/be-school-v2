@@ -333,7 +333,7 @@ exports.scanSelfDoubleQr = async (req, res) => {
             notification: {
                 title: `Presensi: ${isStudent ? 'Siswa' : 'Guru'}`,
                 // Di sini kita buat pesannya fleksibel
-                body: `${userName} (${identity}) baru saja Tap QR di posisi ${qrPosition.toUpperCase()}.`,
+                body: `${userName} (${identity}) baru saja Tap QR.`,
             },
             data: {
                 type: "NEW_ATTENDANCE",
