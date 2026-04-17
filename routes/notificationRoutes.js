@@ -2,11 +2,11 @@
 const express = require('express');
 const router = express.Router();
 const adminFirebase = require('../config/firebase');
-const authMiddleware = require('../middleware/authMiddleware'); // sesuaikan
+const notifMiddleware = require('../middlewares/notifMiddleware');
 
 // Admin subscribe ke topic sekolahnya
 // Dipanggil saat: (1) login, (2) browser dapat FCM token baru
-router.post('/subscribe-topic', authMiddleware, async (req, res) => {
+router.post('/subscribe-topic', notifMiddleware, async (req, res) => {
   const { fcmToken } = req.body;
   const { schoolId } = req.user; // dari JWT admin
 
@@ -26,7 +26,7 @@ router.post('/subscribe-topic', authMiddleware, async (req, res) => {
 });
 
 // Admin unsubscribe saat logout
-router.post('/unsubscribe-topic', authMiddleware, async (req, res) => {
+router.post('/unsubscribe-topic', notifMiddleware, async (req, res) => {
   const { fcmToken } = req.body;
   const { schoolId } = req.user;
 
