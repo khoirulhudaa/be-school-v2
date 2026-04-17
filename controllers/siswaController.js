@@ -2510,46 +2510,44 @@ exports.getConsecutiveAbsent = async (req, res) => {
     }
     const formattedDates = checkDays.map(d => `'${d}'`).join(',');
  
-    // ── Filter dinamis ────────────────────────────────────────────────────────
-    const whereClause = {
-      schoolId: parseInt(schoolId),
-      isActive:    true,
-      isGraduated: false,
-      [Op.and]: [
-        literal(`NOT EXISTS (
-          SELECT 1 FROM kehadiran
-          WHERE studentId = Student.id
-          AND   status    = 'Hadir'
-          AND   DATE(CONVERT_TZ(createdAt, '+00:00', '+07:00')) IN (${formattedDates})
-        )`)
-      ]
-    };
- 
-    // Filter kelas
+    const andConditions = [
+      { schoolId: parseInt(schoolId) },
+      { isActive: true },
+      { isGraduated: false },
+      literal(`NOT EXISTS (
+        SELECT 1 FROM kehadiran
+        WHERE studentId = Student.id
+        AND status = 'Hadir'
+        AND DATE(CONVERT_TZ(createdAt, '+00:00', '+07:00')) IN (${formattedDates})
+      )`)
+    ];
+
+    // Tambahkan filter kelas ke array jika ada
     if (kelas && kelas.trim() !== '') {
-      whereClause.class = kelas.trim();
+      andConditions.push({ class: kelas.trim() });
     }
- 
-    // Filter nama atau NIS (OR)
+
+    // Tambahkan filter search ke array jika ada
     if (search && search.trim() !== '') {
       const keyword = `%${search.trim()}%`;
-      whereClause[Op.and].push({
+      andConditions.push({
         [Op.or]: [
           { name: { [Op.like]: keyword } },
-          { nis:  { [Op.like]: keyword } }
+          { nis: { [Op.like]: keyword } }
         ]
       });
     }
-    // ─────────────────────────────────────────────────────────────────────────
- 
+
+    // Masukkan ke findAndCountAll
     const { count, rows: students } = await Student.findAndCountAll({
-      where:      whereClause,
+      where: { [Op.and]: andConditions }, // Gunakan array yang sudah dibangun
+      logging: (sql) => console.log("CEK SQL DISINI:", sql),
       attributes: ['id', 'name', 'nis', 'class', 'photoUrl'],
       limit,
       offset,
-      order:      [['name', 'ASC']],
-      subQuery:   false,
-      raw:        true
+      order: [['name', 'ASC']],
+      subQuery: false,
+      raw: true
     });
  
     res.json({
