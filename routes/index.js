@@ -45,8 +45,7 @@
     const absenRoutes = require('./absenRoutes');
     const aktivitasRoutes = require('./aktivitasRoutes');
     const biroJodohRoutes = require('./biroJodohRoutes');
-
-    // ... middleware lainnya
+    const notificationRoutes = require('./notificationRoutes');
 
     router.use('/auth', require('./authRoutes'));
     router.use('/profile', require('./updateProfileRouter'));
@@ -59,6 +58,7 @@
     router.use('/alumni', alumniRouter);
     router.use('/pramuka', pramukaRouter);
     router.use('/siswa', siswaRouter);
+    router.use('/notifications', notificationRoutes);
     router.use('/ekstrakurikuler', ekstrakurikulerRouter);
     router.use('/layanan', layananRouter);
     router.use('/program', programRouter);
