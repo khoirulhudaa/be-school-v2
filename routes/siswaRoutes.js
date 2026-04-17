@@ -13,16 +13,15 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // Batas 5MB sesuai UI frontend
 });
 
-// --- API SISWA ---
 // Endpoint: /api/siswa
-router.get('/search', studentController.getStudentSearch);
 router.get('/', studentController.getAllStudents); // Sesuai fetch di frontend tadi
 router.get('/all-no-pagination', studentController.getAllStudentsNoPagination);
 router.post('/', upload.single('photo'), studentController.createStudent);
 router.post('/bulk', studentController.bulkCreateStudents);
-router.post('/login', loginLimiter, studentController.checkStudentAuth);
+router.get('/search', studentController.getStudentSearch);
 router.put('/:id', upload.single('photo'), studentController.updateStudent);
 router.delete('/:id', studentController.deleteStudent);
+router.post('/login', loginLimiter, studentController.checkStudentAuth);
 router.get('/:parentId/anak', studentController.getParentChildren);
 router.get('/:id/location', studentController.updateStudentLocation );
 router.put('/class/bulk-update-class', studentController.updateClassByBatch);
