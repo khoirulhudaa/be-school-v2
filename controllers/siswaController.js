@@ -2494,11 +2494,12 @@ exports.updateClassByBatch = async (req, res) => {
 
 exports.getConsecutiveAbsent = async (req, res) => {
   try {
-    const { schoolId, minDays = 3 } = req.query;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+    const { schoolId, minDays = 3, search = '', kelas = '' } = req.query;
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, parseInt(req.query.limit) || 10);
     const offset = (page - 1) * limit;
-
+ 
+    // Bangun N hari kerja ke belakang dari hari ini
     const checkDays = [];
     let current = moment2().tz('Asia/Jakarta').startOf('day');
     while (checkDays.length < parseInt(minDays)) {
@@ -2507,58 +2508,83 @@ exports.getConsecutiveAbsent = async (req, res) => {
       }
       current.subtract(1, 'day');
     }
-
     const formattedDates = checkDays.map(d => `'${d}'`).join(',');
-
-    const { count, rows: students } = await Student.findAndCountAll({
-      where: {
-        schoolId: parseInt(schoolId),
-        isActive: true,
-        isGraduated: false,
-        [Op.and]: [
-          // Ganti 'Attendances' menjadi 'kehadiran'
-          literal(`NOT EXISTS (
-            SELECT 1 FROM kehadiran 
-            WHERE studentId = Student.id 
-            AND status = 'Hadir'
-            AND DATE(CONVERT_TZ(createdAt, '+00:00', '+07:00')) IN (${formattedDates})
-          )`)
+ 
+    // ── Filter dinamis ────────────────────────────────────────────────────────
+    const whereClause = {
+      schoolId: parseInt(schoolId),
+      isActive:    true,
+      isGraduated: false,
+      [Op.and]: [
+        literal(`NOT EXISTS (
+          SELECT 1 FROM kehadiran
+          WHERE studentId = Student.id
+          AND   status    = 'Hadir'
+          AND   DATE(CONVERT_TZ(createdAt, '+00:00', '+07:00')) IN (${formattedDates})
+        )`)
+      ]
+    };
+ 
+    // Filter kelas
+    if (kelas && kelas.trim() !== '') {
+      whereClause.class = kelas.trim();
+    }
+ 
+    // Filter nama atau NIS (OR)
+    if (search && search.trim() !== '') {
+      const keyword = `%${search.trim()}%`;
+      whereClause[Op.and].push({
+        [Op.or]: [
+          { name: { [Op.like]: keyword } },
+          { nis:  { [Op.like]: keyword } }
         ]
-      },
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+ 
+    const { count, rows: students } = await Student.findAndCountAll({
+      where:      whereClause,
       attributes: ['id', 'name', 'nis', 'class', 'photoUrl'],
-      limit, offset,
-      order: [['name', 'ASC']],
-      subQuery: false,
-      raw: true
+      limit,
+      offset,
+      order:      [['name', 'ASC']],
+      subQuery:   false,
+      raw:        true
     });
-
+ 
     res.json({
       success: true,
+      count,
       data: students.map(s => ({ ...s, isAlert: true, absentDates: checkDays })),
-      pagination: { totalData: count, totalPages: Math.ceil(count / limit), currentPage: page }
+      pagination: {
+        totalData:   count,
+        totalPages:  Math.ceil(count / limit),
+        currentPage: page
+      }
     });
   } catch (err) {
     console.error('[getConsecutiveAbsent]', err);
     res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 };
-
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+ 
 exports.getLowAttendance = async (req, res) => {
   try {
-    const { schoolId, threshold = 75 } = req.query;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+    const { schoolId, threshold = 75, search = '', kelas = '' } = req.query;
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, parseInt(req.query.limit) || 10);
     const offset = (page - 1) * limit;
-
+ 
     if (!schoolId) {
       return res.status(400).json({ success: false, message: 'schoolId diperlukan' });
     }
-
-    // --- LOGIKA BULAN BERJALAN ---
+ 
     const startDate = moment2().tz('Asia/Jakarta').startOf('month');
-    const endDate = moment2().tz('Asia/Jakarta').endOf('month');
-    const today = moment2().tz('Asia/Jakarta');
-
+    const endDate   = moment2().tz('Asia/Jakarta').endOf('month');
+    const today     = moment2().tz('Asia/Jakarta');
+ 
     // Hitung total hari kerja bulan ini (penuh)
     let totalWorkdaysInMonth = 0;
     let dayCursor = startDate.clone();
@@ -2566,8 +2592,8 @@ exports.getLowAttendance = async (req, res) => {
       if (dayCursor.day() !== 0 && dayCursor.day() !== 6) totalWorkdaysInMonth++;
       dayCursor.add(1, 'day');
     }
-
-    // Tetap hitung passedWorkdays untuk info di UI
+ 
+    // Hitung hari kerja yang sudah berlalu (untuk info UI)
     let passedWorkdays = 0;
     let cursor = startDate.clone();
     while (cursor.isSameOrBefore(today, 'day')) {
@@ -2575,624 +2601,200 @@ exports.getLowAttendance = async (req, res) => {
       cursor.add(1, 'day');
     }
     passedWorkdays = Math.max(1, passedWorkdays);
-
+ 
     const sDateStr = startDate.format('YYYY-MM-DD HH:mm:ss');
     const eDateStr = endDate.format('YYYY-MM-DD HH:mm:ss');
-
-    const { count, rows: students } = await Student.findAndCountAll({
-      where: {
-        schoolId: parseInt(schoolId),
-        isActive: true,
-        isGraduated: false,
-        [Op.and]: [
-          literal(`(
-            SELECT COUNT(id) FROM kehadiran 
-            WHERE studentId = Student.id 
-            AND status = 'Hadir'
-            AND CONVERT_TZ(createdAt, '+00:00', '+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
-            AND DAYOFWEEK(CONVERT_TZ(createdAt, '+00:00', '+07:00')) NOT IN (1, 7)
-          ) * 100 / ${totalWorkdaysInMonth} < ${parseInt(threshold)}`)
+ 
+    // ── Filter dinamis ────────────────────────────────────────────────────────
+    const andConditions = [
+      literal(`(
+        SELECT COUNT(id) FROM kehadiran
+        WHERE studentId = Student.id
+        AND   status    = 'Hadir'
+        AND   CONVERT_TZ(createdAt, '+00:00', '+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
+        AND   DAYOFWEEK(CONVERT_TZ(createdAt, '+00:00', '+07:00')) NOT IN (1, 7)
+      ) * 100 / ${totalWorkdaysInMonth} < ${parseInt(threshold)}`)
+    ];
+ 
+    const whereClause = {
+      schoolId:    parseInt(schoolId),
+      isActive:    true,
+      isGraduated: false,
+      [Op.and]:    andConditions
+    };
+ 
+    // Filter kelas
+    if (kelas && kelas.trim() !== '') {
+      whereClause.class = kelas.trim();
+    }
+ 
+    // Filter nama atau NIS
+    if (search && search.trim() !== '') {
+      const keyword = `%${search.trim()}%`;
+      andConditions.push({
+        [Op.or]: [
+          { name: { [Op.like]: keyword } },
+          { nis:  { [Op.like]: keyword } }
         ]
-      },
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+ 
+    const { count, rows: students } = await Student.findAndCountAll({
+      where: whereClause,
       attributes: [
         'id', 'name', 'nis', 'class', 'photoUrl',
         [
           literal(`(
-            SELECT COUNT(id) FROM kehadiran 
-            WHERE studentId = Student.id 
-            AND status = 'Hadir'
-            AND CONVERT_TZ(createdAt, '+00:00', '+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
-            AND DAYOFWEEK(CONVERT_TZ(createdAt, '+00:00', '+07:00')) NOT IN (1, 7)
+            SELECT COUNT(id) FROM kehadiran
+            WHERE studentId = Student.id
+            AND   status    = 'Hadir'
+            AND   CONVERT_TZ(createdAt, '+00:00', '+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
+            AND   DAYOFWEEK(CONVERT_TZ(createdAt, '+00:00', '+07:00')) NOT IN (1, 7)
           )`),
           'hadirCount'
         ]
       ],
       limit,
       offset,
-      order: [[literal('hadirCount'), 'ASC']],
+      order:    [[literal('hadirCount'), 'ASC']],
       subQuery: false,
-      raw: true
+      raw:      true
     });
-
+ 
     const dataWithPercentage = students.map(s => {
       const hadirCount = parseInt(s.hadirCount || 0);
       return {
         ...s,
         hadirCount,
-        totalWorkdays: totalWorkdaysInMonth,
+        totalWorkdays:  totalWorkdaysInMonth,
         passedWorkdays,
-        percentage: Math.round((hadirCount / totalWorkdaysInMonth) * 100),
-        period: `Bulan ${today.format('MMMM YYYY')}`,
-        rangeLabel: `${startDate.format('DD MMM')} - ${endDate.format('DD MMM YYYY')}`
+        percentage:     Math.round((hadirCount / totalWorkdaysInMonth) * 100),
+        period:         `Bulan ${today.format('MMMM YYYY')}`,
+        rangeLabel:     `${startDate.format('DD MMM')} - ${endDate.format('DD MMM YYYY')}`
       };
     });
-
+ 
     res.json({
       success: true,
+      count,
       data: dataWithPercentage,
       pagination: {
-        totalData: count,
-        totalPages: Math.ceil(count / limit),
+        totalData:   count,
+        totalPages:  Math.ceil(count / limit),
         currentPage: page
       }
     });
-
   } catch (err) {
     console.error('[getLowAttendance Error]:', err);
     res.status(500).json({
-      success: false,
-      message: 'Gagal mengambil data kehadiran rendah',
-      error: err.message
+      success:  false,
+      message:  'Gagal mengambil data kehadiran rendah',
+      error:    err.message
     });
   }
 };
-
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+ 
 exports.getFrequentLate = async (req, res) => {
   try {
-    const { schoolId, minPerWeek = 2, weeksBack = 2 } = req.query;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+    const { schoolId, minPerWeek = 2, weeksBack = 2, search = '', kelas = '' } = req.query;
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, parseInt(req.query.limit) || 10);
     const offset = (page - 1) * limit;
-
-    const deadline = '07:00:00';
-    const endDate = moment2().tz('Asia/Jakarta').endOf('day');
-    const startDate = moment2().tz('Asia/Jakarta').subtract(parseInt(weeksBack), 'weeks').startOf('isoWeek');
-
+ 
     if (!schoolId) {
       return res.status(400).json({ success: false, message: 'schoolId diperlukan' });
     }
-
-    const { count, rows: students } = await Student.findAndCountAll({
-      where: {
-        schoolId: parseInt(schoolId),
-        isActive: true,
-        isGraduated: false,
-        [Op.and]: [
-          // Gunakan EXISTS dengan nama tabel asli 'kehadiran'
-          literal(`EXISTS (
-            SELECT 1 FROM (
-              SELECT studentId, YEARWEEK(CONVERT_TZ(createdAt,'+00:00','+07:00'), 1) as weekKey
-              FROM kehadiran
-              WHERE status = 'Hadir'
-              AND schoolId = ${parseInt(schoolId)}
-              AND TIME(CONVERT_TZ(createdAt,'+00:00','+07:00')) > '${deadline}'
-              AND CONVERT_TZ(createdAt,'+00:00','+07:00') 
-                  BETWEEN '${startDate.format('YYYY-MM-DD HH:mm:ss')}' 
-                  AND '${endDate.format('YYYY-MM-DD HH:mm:ss')}'
-              AND DAYOFWEEK(CONVERT_TZ(createdAt,'+00:00','+07:00')) NOT IN (1, 7)
-              GROUP BY studentId, weekKey
-              HAVING COUNT(id) >= ${parseInt(minPerWeek)}
-            ) AS v_weeks
-            WHERE v_weeks.studentId = Student.id
-          )`)
+ 
+    const deadline  = '07:00:00';
+    const endDate   = moment2().tz('Asia/Jakarta').endOf('day');
+    const startDate = moment2().tz('Asia/Jakarta').subtract(parseInt(weeksBack), 'weeks').startOf('isoWeek');
+ 
+    const sDateStr = startDate.format('YYYY-MM-DD HH:mm:ss');
+    const eDateStr = endDate.format('YYYY-MM-DD HH:mm:ss');
+ 
+    // ── Filter dinamis ────────────────────────────────────────────────────────
+    const andConditions = [
+      literal(`EXISTS (
+        SELECT 1 FROM (
+          SELECT studentId, YEARWEEK(CONVERT_TZ(createdAt,'+00:00','+07:00'), 1) AS weekKey
+          FROM   kehadiran
+          WHERE  status   = 'Hadir'
+          AND    schoolId = ${parseInt(schoolId)}
+          AND    TIME(CONVERT_TZ(createdAt,'+00:00','+07:00')) > '${deadline}'
+          AND    CONVERT_TZ(createdAt,'+00:00','+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
+          AND    DAYOFWEEK(CONVERT_TZ(createdAt,'+00:00','+07:00')) NOT IN (1, 7)
+          GROUP BY studentId, weekKey
+          HAVING COUNT(id) >= ${parseInt(minPerWeek)}
+        ) AS v_weeks
+        WHERE v_weeks.studentId = Student.id
+      )`)
+    ];
+ 
+    const whereClause = {
+      schoolId:    parseInt(schoolId),
+      isActive:    true,
+      isGraduated: false,
+      [Op.and]:    andConditions
+    };
+ 
+    // Filter kelas
+    if (kelas && kelas.trim() !== '') {
+      whereClause.class = kelas.trim();
+    }
+ 
+    // Filter nama atau NIS
+    if (search && search.trim() !== '') {
+      const keyword = `%${search.trim()}%`;
+      andConditions.push({
+        [Op.or]: [
+          { name: { [Op.like]: keyword } },
+          { nis:  { [Op.like]: keyword } }
         ]
-      },
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+ 
+    const { count, rows: students } = await Student.findAndCountAll({
+      where: whereClause,
       attributes: [
         'id', 'name', 'nis', 'class', 'photoUrl',
-        // Hitung total telat untuk ditampilkan di UI
         [
           literal(`(
-            SELECT COUNT(id) FROM kehadiran 
-            WHERE studentId = Student.id 
-            AND status = 'Hadir' 
-            AND TIME(CONVERT_TZ(createdAt,'+00:00','+07:00')) > '${deadline}'
-            AND CONVERT_TZ(createdAt,'+00:00','+07:00') 
-            BETWEEN '${startDate.format('YYYY-MM-DD HH:mm:ss')}' 
-            AND '${endDate.format('YYYY-MM-DD HH:mm:ss')}'
+            SELECT COUNT(id) FROM kehadiran
+            WHERE studentId = Student.id
+            AND   status    = 'Hadir'
+            AND   TIME(CONVERT_TZ(createdAt,'+00:00','+07:00')) > '${deadline}'
+            AND   CONVERT_TZ(createdAt,'+00:00','+07:00') BETWEEN '${sDateStr}' AND '${eDateStr}'
           )`),
           'totalLate'
         ]
       ],
       limit,
       offset,
-      order: [[literal('totalLate'), 'DESC']],
-      subQuery: false, // Menghindari masalah LIMIT pada dataset besar
-      raw: true
+      order:    [[literal('totalLate'), 'DESC']],
+      subQuery: false,
+      raw:      true
     });
-
+ 
     res.json({
       success: true,
+      count,
       data: students.map(s => ({
         ...s,
-        totalLate: parseInt(s.totalLate || 0),
+        totalLate:     parseInt(s.totalLate || 0),
         weeksAnalyzed: parseInt(weeksBack)
       })),
       pagination: {
-        totalData: count,
-        totalPages: Math.ceil(count / limit),
+        totalData:   count,
+        totalPages:  Math.ceil(count / limit),
         currentPage: page
       }
     });
   } catch (err) {
     console.error('[getFrequentLate]', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-exports.shareRekapHarian = async (req, res) => {
-  try {
-    const { schoolId, date, via = 'wa' } = req.query;
- 
-    if (!schoolId) {
-      return res.status(400).json({ success: false, message: 'schoolId diperlukan' });
-    }
-
-    const normalizePhone = (phone) => {
-      if (!phone) return null;
-      let p = String(phone).replace(/\D/g, '');
-      if (p.startsWith('0')) p = '62' + p.slice(1);
-      if (p.startsWith('+')) p = p.slice(1);
-      if (!p.startsWith('62')) p = '62' + p;
-      if (p.length < 10 || p.length > 15) {
-        console.warn(`[normalizePhone] Nomor mencurigakan (${p.length} digit): ${p}`);
-        return null;
-      }
-      return p;
-    };
- 
-    // Cek status WA jika via wa
-    if (via === 'wa' || via === 'all') {
-      if (!getIsReady()) {
-        try {
-          await waitUntilReady(30000);
-        } catch {
-          return res.status(400).json({
-            success: false,
-            message: 'WhatsApp belum terhubung. Silakan scan QR di halaman pengaturan WA.',
-          });
-        }
-      }
- 
-      const stats = getSendStats();
-      if (!canSendMessage()) {
-        return res.status(429).json({
-          success: false,
-          message: `Batas pengiriman WA hari ini sudah tercapai (${stats.max} pesan). Coba lagi besok.`,
-          stats,
-        });
-      }
- 
-      console.log(`[WA RateLimit] Sisa kuota hari ini: ${stats.remaining}/${stats.max}`);
-    }
- 
-    const targetDate = date || moment().format('YYYY-MM-DD');
-    const dateMoment = moment2.tz(targetDate, 'Asia/Jakarta');
-    const startDate  = dateMoment.clone().startOf('day').format('YYYY-MM-DD HH:mm:ss');
-    const endDate    = dateMoment.clone().endOf('day').format('YYYY-MM-DD HH:mm:ss');
-    const deadline   = '07:00:00';
- 
-    // ─── Ambil data siswa + absensi ──────────────────────────────
-    const allStudents = await Student.findAll({
-      where: { schoolId: parseInt(schoolId), isActive: true, isGraduated: false },
-      attributes: ['id', 'name', 'nis', 'class'],
-      include: [{
-        model: Attendance,
-        as: 'studentAttendances',
-        where: { createdAt: { [Op.between]: [startDate, endDate] }, userRole: 'student' },
-        attributes: ['status', 'createdAt'],
-        required: false,
-        limit: 1,
-        order: [['createdAt', 'ASC']],
-      }],
-      raw: false,
-    });
- 
-    console.log(`[shareRekap] allStudents.length: ${allStudents.length}`);
- 
-    // ─── Susun rekap per kelas ───────────────────────────────────
-    let totalAllStudents = 0, totalAllHadir = 0, totalAllBelumHadir = 0;
-    const acc = new Map();
- 
-    for (const student of allStudents) {
-      const className = student.class || 'Tanpa Kelas';
-      if (!acc.has(className)) {
-        acc.set(className, {
-          className,
-          totalStudents: 0,
-          stats: { onTime: 0, late: 0, izin: 0, sakit: 0, alpha: 0, belumHadir: 0 },
-        });
-      }
-      const classObj   = acc.get(className);
-      const attendance = student.studentAttendances?.[0];
-      totalAllStudents++;
- 
-      if (attendance) {
-        const scanTime = moment2(attendance.createdAt).tz('Asia/Jakarta').format('HH:mm:ss');
-        if (attendance.status === 'Hadir') {
-          totalAllHadir++;
-          scanTime <= deadline ? classObj.stats.onTime++ : classObj.stats.late++;
-        } else {
-          const k = attendance.status.toLowerCase();
-          if (classObj.stats[k] !== undefined) classObj.stats[k]++;
-        }
-      } else {
-        classObj.stats.belumHadir++;
-        totalAllBelumHadir++;
-      }
-      classObj.totalStudents++;
-    }
- 
-    // ─── Ambil kelas & profil sekolah ────────────────────────────
-    const Class  = require('../models/kelas');
-    const classes = await Class.findAll({ where: { schoolId: parseInt(schoolId) } });
-    const school  = await SchoolProfile.findOne({ where: { schoolId: parseInt(schoolId) } });
- 
-    console.log(`[shareRekap] school.kepalaSekolahPhone (raw): ${school?.kepalaSekolahPhone}`);
- 
-    // Map walikelas ke data rekap
-    classes.forEach(cls => {
-      const normalizedClassName = cls.className?.trim();
-      let matchedKey = null;
- 
-      for (const [key] of acc) {
-        if (key.trim().toLowerCase() === normalizedClassName?.toLowerCase()) {
-          matchedKey = key;
-          break;
-        }
-      }
- 
-      if (!matchedKey) {
-        acc.set(normalizedClassName, {
-          className: normalizedClassName,
-          totalStudents: 0,
-          stats: { onTime: 0, late: 0, izin: 0, sakit: 0, alpha: 0, belumHadir: 0 },
-        });
-        matchedKey = normalizedClassName;
-      }
- 
-      acc.get(matchedKey).walikelas = {
-        phone: normalizePhone(cls.waliKelasPhone),
-        email: cls.waliKelasEmail || null,
-        name:  cls.waliKelas      || null,
-      };
-    });
- 
-    const rekapData = {
-      summary: { totalAllStudents, totalAllHadir, totalAllBelumHadir },
-      data: Array.from(acc.values()),
-    };
- 
-    const results = { wa: [], email: [], errors: [] };
-    const waClient = getClient();
-
-    // Hitung total penerima SEBELUM mulai kirim
-    const totalRecipients =
-      (school?.kepalaSekolahPhone ? 1 : 0) +
-      Array.from(acc.values()).filter(c => c.walikelas?.phone).length;
-
-    let sentCount = 0;
-
-    emitProgress(schoolId, {
-      status: 'start',
-      message: `Memulai pengiriman ke ${totalRecipients} penerima...`,
-      current: 0,
-      total: totalRecipients,
-    });
- 
-    // ─── HELPER: Kirim PDF via WA ─────────────────────────────────
-    const sendWAWithPDF = async (rawPhone, pdfBuffer, filename, caption, label) => {
-      if (!canSendMessage()) {
-        console.warn(`[WA RateLimit] Limit harian tercapai, skip ${label}`);
-        results.errors.push({ to: label, via: 'wa', error: 'Batas kirim harian tercapai' });
-        return;
-      }
- 
-      const phone = normalizePhone(rawPhone);
-      if (!phone) {
-        console.warn(`[shareRekap] Skip ${label}: nomor tidak valid (${rawPhone})`);
-        results.errors.push({ to: label, via: 'wa', error: `Nomor tidak valid: ${rawPhone}` });
-        return;
-      }
- 
-      try {
-        const chatId = `${phone}@c.us`;
-        console.log(`[shareRekap] Mengirim PDF ke ${label} (${chatId})...`);
- 
-        const media = new MessageMedia(
-          'application/pdf',
-          pdfBuffer.toString('base64'),
-          filename
-        );
- 
-        await waClient.sendMessage(chatId, media, { caption });
- 
-        incrementSendCount();
-        results.wa.push({ to: label, phone, status: 'sent' });
-        console.log(`[shareRekap] ✅ PDF terkirim ke ${label} (${phone})`);
- 
-        sentCount++;
-        emitProgress(schoolId, {
-          status: 'progress',
-          message: `✅ Terkirim ke ${label}`,
-          current: sentCount,
-          total: totalRecipients,
-          label,
-        });
-
-        const delay = results.wa.length > 10 ? 3000 : 1500;
-        await new Promise(r => setTimeout(r, delay));
-       } catch (err) {
-        console.error(`[shareRekap] ❌ Gagal kirim PDF ke ${label}:`, err.message);
-        results.errors.push({ to: label, via: 'wa', error: err.message });
-
-        // ← TAMBAHKAN INI
-        sentCount++;
-        emitProgress(schoolId, {
-          status: 'progress',
-          message: `❌ Gagal ke ${label}: ${err.message}`,
-          current: sentCount,
-          total: totalRecipients,
-          label,
-          isError: true,
-        });
-      }
-    };
- 
-    // ─── KIRIM WA ────────────────────────────────────────────────
-    if (via === 'wa' || via === 'all') {
-      if (!waClient) {
-        return res.status(400).json({
-          success: false,
-          message: 'WA client tidak tersedia. Pastikan WhatsApp sudah terhubung.',
-        });
-      }
- 
-      const schoolName = school?.namaSekolah || 'Sekolah';
- 
-      // 1. Generate & kirim PDF total ke Kepala Sekolah
-      if (school?.kepalaSekolahPhone) {
-        try {
-          console.log('[shareRekap] Generate PDF rekap total untuk kepsek...');
-          const rekapPdfBuffer = await generateRekapPDF(rekapData, targetDate, schoolName);
- 
-          await sendWAWithPDF(
-            school.kepalaSekolahPhone,
-            rekapPdfBuffer,
-            `Rekap_Harian_${targetDate}.pdf`,
-            `*Laporan Rekap Kehadiran Harian*\nTanggal: ${targetDate}\n\nTerlampir laporan lengkap seluruh kelas`,
-            'Kepala Sekolah'
-          );
-        } catch (pdfErr) {
-          console.error('[shareRekap] Gagal generate PDF kepsek:', pdfErr.message);
-          results.errors.push({ to: 'Kepala Sekolah', via: 'wa', error: `Gagal generate PDF: ${pdfErr.message}` });
-        }
-      } else {
-        console.warn('[shareRekap] kepalaSekolahPhone tidak ditemukan di profil sekolah');
-      }
- 
-      // 2. Generate & kirim PDF per kelas ke masing-masing Wali Kelas
-      for (const cls of acc.values()) {
-        if (!cls.walikelas?.phone) {
-          console.warn(`[shareRekap] Walikelas ${cls.className} tidak punya nomor WA, dilewati`);
-          continue;
-        }
- 
-        try {
-          console.log(`[shareRekap] Generate PDF kelas ${cls.className}...`);
-          const classPdfBuffer = await generateClassRekapPDF(cls, targetDate, schoolName);
- 
-          await sendWAWithPDF(
-            cls.walikelas.phone,
-            classPdfBuffer,
-            `Rekap_${cls.className}_${targetDate}.pdf`,
-            `*Rekap Kehadiran Kelas ${cls.className}*\nTanggal: ${targetDate}\n\nTerlampir laporan kehadiran kelas Anda`,
-            `Walikelas ${cls.className}`
-          );
-        } catch (pdfErr) {
-          console.error(`[shareRekap] Gagal generate PDF kelas ${cls.className}:`, pdfErr.message);
-          results.errors.push({
-            to: `Walikelas ${cls.className}`,
-            via: 'wa',
-            error: `Gagal generate PDF: ${pdfErr.message}`,
-          });
-        }
-      }
- 
-      console.log(`[WA RateLimit] Setelah kirim:`, getSendStats());
-    }
- 
-    // ─── KIRIM EMAIL ─────────────────────────────────────────────
-    if ((via === 'email' || via === 'all') && process.env.SMTP_USER) {
-      const nodemailer  = require('nodemailer');
-      const schoolName  = school?.namaSekolah || 'Sekolah';
- 
-      const transporter = nodemailer.createTransport({
-        host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-        port:   587,
-        secure: false,
-        auth:   { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      });
- 
-      const sendEmail = async (to, subject, text, pdfBuffer, filename, label) => {
-        if (!to) {
-          console.warn(`[shareRekap] Skip email ${label}: alamat email kosong`);
-          results.errors.push({ to: label, via: 'email', error: 'Email kosong' });
-          return;
-        }
-        try {
-          const mailOptions = {
-            from:    `"KiraProject" <${process.env.SMTP_USER}>`,
-            to,
-            subject,
-            text:    text.replace(/\*/g, '').replace(/━/g, '—'),
-          };
- 
-          // Attach PDF jika ada
-          if (pdfBuffer && filename) {
-            mailOptions.attachments = [{
-              filename,
-              content:     pdfBuffer,
-              contentType: 'application/pdf',
-            }];
-          }
- 
-          await transporter.sendMail(mailOptions);
-          results.email.push({ to: label, email: to, status: 'sent' });
-          console.log(`[shareRekap] ✅ Email terkirim ke ${label} (${to})`);
-        } catch (err) {
-          console.error(`[shareRekap] ❌ Gagal kirim email ke ${label} (${to}):`, err.message);
-          results.errors.push({ to: label, via: 'email', error: err.message });
-        }
-      };
- 
-      // Kepsek
-      if (school?.kepalaSekolahEmail) {
-        const rekapPdfBuffer = await generateRekapPDF(rekapData, targetDate, schoolName);
-        await sendEmail(
-          school.kepalaSekolahEmail,
-          `📊 Rekap Kehadiran Harian ${targetDate}`,
-          generateRekapText(rekapData, targetDate),
-          rekapPdfBuffer,
-          `Rekap_Harian_${targetDate}.pdf`,
-          'Kepala Sekolah'
-        );
-      }
- 
-      // Walikelas
-      for (const cls of acc.values()) {
-        if (cls.walikelas?.email) {
-          const classPdfBuffer = await generateClassRekapPDF(cls, targetDate, schoolName);
-          await sendEmail(
-            cls.walikelas.email,
-            `📚 Rekap Kelas ${cls.className} — ${targetDate}`,
-            generateClassSpecificText(cls, targetDate),
-            classPdfBuffer,
-            `Rekap_${cls.className}_${targetDate}.pdf`,
-            `Walikelas ${cls.className}`
-          );
-        }
-      }
-    }
- 
-    console.log(
-      `[shareRekap] Selesai. WA: ${results.wa.length}, Email: ${results.email.length}, Gagal: ${results.errors.length}`
-    );
- 
-    // Kumpulkan semua warning (kelas tanpa nomor WA)
-    const skippedClasses = [];
-    for (const cls of acc.values()) {
-      if (!cls.walikelas?.phone) {
-        skippedClasses.push(cls.className);
-      }
-    }
-
-    const warnings = [];
-    if (skippedClasses.length > 0) {
-      warnings.push({
-        type: 'no_phone',
-        message: `${skippedClasses.length} walikelas tidak punya nomor WA`,
-        list: skippedClasses.map(c => `• ${c}`)
-      });
-    }
-    if (!school?.kepalaSekolahPhone) {
-      warnings.push({
-        type: 'no_kepsek_phone',
-        message: 'Nomor WA Kepala Sekolah belum diisi di profil sekolah',
-        list: []
-      });
-    }
-
-    emitProgress(schoolId, {
-      status: 'done',
-      message: `Selesai: ${results.wa.length} terkirim, ${results.errors.length} gagal`,
-      current: totalRecipients,
-      total: totalRecipients,
-      results,
-    });
-
-    res.json({
-      success: true,
-      message: results.wa.length > 0
-        ? `Rekap dikirim: ${results.wa.length} WA, ${results.email.length} email, ${results.errors.length} gagal`
-        : 'Tidak ada pesan terkirim — periksa nomor WA walikelas di data kelas',
-      results,
-      warnings,         // ← list warning per kategori
-      rateLimit: getSendStats(),
-    });
- 
-  } catch (err) {
-    console.error('[shareRekapHarian] Error:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-exports.updateLocation = async (req, res) => {
-  const { id, lat, lng } = req.body;
-  await Student.update({ latitude: lat, longitude: lng }, { where: { id } });
-  res.json({ success: true, message: 'Lokasi diperbarui' });
-};
-
-// --- IZIN ---
-exports.submitIzin = async (req, res) => {
-  try {
-    const data = await AbsenceRequest.create(req.body);
-    res.json({ success: true, data });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// --- BIRO JODOH (Radius Search) ---
-exports.getNearbyStudents = async (req, res) => {
-  const { lat, lng, radius = 10, schoolId } = req.query;
-  
-  // Formula Haversine untuk mencari jarak berdasarkan lat/lng di MySQL/Postgres
-  const distanceQuery = `(6371 * acos(cos(radians(${lat})) * cos(radians(latitude)) * cos(radians(longitude) - radians(${lng})) + sin(radians(${lat})) * sin(radians(latitude))))`;
-
-  try {
-    const students = await Student.findAll({
-      attributes: { 
-        include: [[Sequelize.literal(distanceQuery), 'distance']] 
-      },
-      where: {
-        schoolId,
-        isActive: true,
-        [Op.and]: Sequelize.where(Sequelize.literal(distanceQuery), '<=', radius)
-      },
-      order: Sequelize.literal('distance ASC')
-    });
-    res.json({ success: true, data: students });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-exports.updateStudentLocation = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { latitude, longitude } = req.body;
-
-    if (!latitude || !longitude) {
-      return res.status(400).json({ success: false, message: "latitude dan longitude wajib diisi" });
-    }
-
-    await Student.update(
-      { latitude, longitude },
-      { where: { id } }
-    );
-
-    res.json({ success: true, message: "Lokasi berhasil diperbarui" });
-  } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
