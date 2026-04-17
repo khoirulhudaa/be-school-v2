@@ -2449,6 +2449,27 @@ exports.getGlobalAttendanceStats = async (req, res) => {
   }
 };
 
+exports.updateStudentLocation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { latitude, longitude } = req.body;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({ success: false, message: "latitude dan longitude wajib diisi" });
+    }
+
+    await Student.update(
+      { latitude, longitude },
+      { where: { id } }
+    );
+
+    res.json({ success: true, message: "Lokasi berhasil diperbarui" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
 exports.updateClassByBatch = async (req, res) => {
   try {
     const { schoolId, batch, newClass, studentIds } = req.body;
