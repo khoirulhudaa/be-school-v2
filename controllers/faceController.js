@@ -458,6 +458,29 @@ exports.faceAbsen = async (req, res) => {
             removeOnFail:     false,
         });
 
+        const identity = guruMode ? (userProfile.nip || '-') : (userProfile.nis || '-');
+        const userName = guruMode ? userProfile.nama : userProfile.name;
+
+        const payload = {
+            notification: {
+                title: `Presensi Wajah: ${guruMode ? 'Guru' : 'Siswa'}`,
+                body: `${userName} (${identity}) baru saja absen via Face Recognition.`,
+            },
+            data: {
+                type: "NEW_ATTENDANCE",
+                schoolId: String(schoolId),
+                role: guruMode ? "teacher" : "student",
+                studentName: String(userName),
+                identity: String(identity),
+                method: "face",
+            },
+            topic: `school_absensi_${schoolId}`
+        };
+
+        adminFirebase.messaging().send(payload)
+            .then((response) => console.log('Notif Face Sukses:', response))
+            .catch((error) => console.log('Notif Face Gagal:', error));
+
         // ── Socket emit ke TV ─────────────────────────────────────────────
         setImmediate(() => {
             try {
@@ -495,5 +518,173 @@ exports.faceAbsen = async (req, res) => {
     } finally {
         // Selalu lepas lock
         await redis.del(lockKey).catch(() => {});
+    }
+};
+
+exports.faceCheckOut = async (req, res) => {
+    const { userLat, userLon, faceDistance } = req.body;
+    const profile = resolveProfile(req);
+
+    if (!profile) {
+        return res.status(401).json({ success: false, message: 'Sesi tidak valid' });
+    }
+
+    const { id, role, schoolId } = profile;
+    const guruMode = isGuru(role);
+
+    // ── Validasi faceDistance ─────────────────────────────────────────────
+    if (!faceDistance || faceDistance > 0.45) {
+        return res.status(400).json({ success: false, message: 'Verifikasi wajah gagal (jarak terlalu jauh)' });
+    }
+
+    const today                = moment().format('YYYY-MM-DD');
+    const secondsUntilEndOfDay = moment().endOf('day').diff(moment(), 'seconds');
+    const entityKey            = guruMode ? `guru:${id}` : `student:${id}`;
+
+    // ── Pastikan sudah check-in dulu ──────────────────────────────────────
+    const hasCheckedIn = await redis.get(`absensi_check:${schoolId}:${entityKey}:${today}`);
+    if (!hasCheckedIn) {
+        return res.status(400).json({ success: false, message: 'Anda belum absen masuk hari ini.' });
+    }
+
+    const checkOutCheckKey = `absensi_checkout_check:${schoolId}:${entityKey}:${today}`;
+    const checkOutLockKey  = `absensi_checkout_lock:${schoolId}:${entityKey}:${today}`;
+
+    // ── Guard: sudah checkout? ────────────────────────────────────────────
+    const alreadyCheckOut = await redis.get(checkOutCheckKey);
+    if (alreadyCheckOut) {
+        return res.status(400).json({ success: false, message: 'Anda sudah absen pulang hari ini.' });
+    }
+
+    // ── Distributed lock ──────────────────────────────────────────────────
+    const lockToken = `lock-checkout-face-${id}-${Date.now()}`;
+    let acquired = await redis.set(checkOutLockKey, lockToken, 'NX', 'PX', 30000);
+    if (!acquired) {
+        await new Promise(r => setTimeout(r, 800));
+        acquired = await redis.set(checkOutLockKey, lockToken, 'NX', 'PX', 30000);
+    }
+    if (!acquired) {
+        return res.status(429).json({ success: false, message: 'Sedang diproses, coba lagi sebentar.' });
+    }
+
+    try {
+        // ── Geofencing ────────────────────────────────────────────────────
+        let school = await redis.get(`school_profile:${schoolId}`);
+        school = school
+            ? JSON.parse(school)
+            : await SchoolProfile.findOne({ where: { schoolId }, raw: true });
+
+        if (school?.latitude && school?.longitude) {
+            const distance = getDistance(
+                userLat, userLon,
+                parseFloat(school.latitude), parseFloat(school.longitude)
+            );
+            if (distance > 200) {
+                await redis.del(checkOutLockKey);
+                return res.status(403).json({
+                    success: false,
+                    message: `Di luar jangkauan sekolah (${Math.round(distance)}m)`,
+                });
+            }
+        }
+
+        // ── Ambil profil user (cached) ────────────────────────────────────
+        const profileCacheKey = `${cachePrefix(role)}:${id}`;
+        let userProfile = await redis.get(profileCacheKey);
+
+        if (!userProfile) {
+            const Model      = getModel(role);
+            const attributes = guruMode
+                ? ['id', 'nama', 'role', 'photoUrl', 'nip']
+                : ['id', 'name', 'class', 'photoUrl', 'nis'];
+
+            const raw = await Model.findByPk(id, { attributes, raw: true });
+            if (!raw) {
+                await redis.del(checkOutLockKey);
+                return res.status(404).json({ success: false, message: 'Profil tidak ditemukan' });
+            }
+            await redis.set(profileCacheKey, JSON.stringify(raw), 'EX', 3600);
+            userProfile = raw;
+        } else {
+            userProfile = JSON.parse(userProfile);
+        }
+
+        const checkOutAt = moment2().tz('Asia/Jakarta').format('YYYY-MM-DD HH:mm:ss');
+
+        // ── Queue update checkout ke DB ───────────────────────────────────
+        await attendanceQueue.add('create-attendance', {
+            jobType:     'checkout',
+            id,
+            schoolId,
+            userRole:    guruMode ? 'teacher' : 'student',
+            studentId:   guruMode ? null : id,
+            guruId:      guruMode ? id : null,
+            latitude:    userLat,
+            longitude:   userLon,
+            method:      'face',
+            faceDistance,
+            checkOutAt,
+            updatedAt:   checkOutAt,
+            targetTable: guruMode ? 'kehadiran_guru' : 'kehadiran',
+        }, {
+            attempts:         3,
+            backoff:          { type: 'fixed', delay: 3000 },
+            jobId:            `${schoolId}-${guruMode ? 'guru' : 'student'}-${id}-${today}-checkout-face`,
+            removeOnComplete: true,
+            removeOnFail:     false,
+        });
+
+        // ── Firebase Push Notification ────────────────────────────────────
+        const identity = guruMode ? (userProfile.nip || '-') : (userProfile.nis || '-');
+        const userName  = guruMode ? userProfile.nama : userProfile.name;
+
+        adminFirebase.messaging().send({
+            notification: {
+                title: `Pulang (Wajah): ${guruMode ? 'Guru' : 'Siswa'}`,
+                body:  `${userName} (${identity}) absen pulang via Face Recognition.`,
+            },
+            data: {
+                type:        'CHECKOUT',
+                schoolId:    String(schoolId),
+                role:        guruMode ? 'teacher' : 'student',
+                studentName: String(userName),
+                identity:    String(identity),
+                method:      'face',
+            },
+            topic: `school_absensi_${schoolId}`
+        }).catch(err => console.warn('[NOTIF CHECKOUT FACE]', err.message));
+
+        // ── Socket emit ───────────────────────────────────────────────────
+        setImmediate(() => {
+            try {
+                const io = req.app.get('socketio');
+                if (io) {
+                    io.to(`school-${schoolId}`).emit('attendance:checkout', {
+                        method: 'face',
+                        student: {
+                            id:    userProfile.id,
+                            name:  guruMode ? userProfile.nama : userProfile.name,
+                            class: userProfile.class || userProfile.role || '-',
+                            photo: userProfile.photoUrl,
+                            time:  moment().format('HH:mm:ss'),
+                        },
+                        faceDistance,
+                    });
+                }
+            } catch (e) {
+                console.warn('[SOCKET CHECKOUT FACE]', e.message);
+            }
+        });
+
+        // ── Tandai sudah checkout di Redis ────────────────────────────────
+        await redis.set(checkOutCheckKey, '1', 'EX', secondsUntilEndOfDay);
+
+        return res.json({ success: true, message: 'Absensi pulang wajah berhasil!' });
+
+    } catch (err) {
+        console.error('[FACE CHECKOUT ERROR]', err.message);
+        return res.status(500).json({ success: false, message: 'Gagal memproses absensi pulang.' });
+    } finally {
+        await redis.del(checkOutLockKey).catch(() => {});
     }
 };

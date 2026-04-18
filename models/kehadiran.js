@@ -39,7 +39,25 @@ const Attendance = sequelize.define('Attendance', {
   },
   latitude: { type: DataTypes.DECIMAL(10, 8), allowNull: true },
   longitude: { type: DataTypes.DECIMAL(11, 8), allowNull: true },
-  updatedAt: { type: DataTypes.DATE, allowNull: true }
+  updatedAt: { type: DataTypes.DATE, allowNull: true },
+  checkOutAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+  },
+  checkOutLat: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: true,
+  },
+  checkOutLon: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: true,
+  },
+  checkOutMethod: {
+    type: DataTypes.ENUM('qr', 'face'),
+    allowNull: true,
+    defaultValue: null,
+  },
 }, {
   tableName: 'kehadiran',
   timestamps: true,
@@ -55,7 +73,8 @@ const Attendance = sequelize.define('Attendance', {
     { name: 'idx_school_role_date', fields: ['schoolId', 'userRole', 'createdAt'] },
     { name: 'idx_school_class_date', fields: ['schoolId', 'currentClass', 'createdAt'] },
     { name: 'idx_unique_student_daily', fields: ['studentId', 'createdAt'] },
-    { name: 'idx_unique_guru_daily', fields: ['guruId', 'createdAt'] }
+    { name: 'idx_unique_guru_daily', fields: ['guruId', 'createdAt'] },
+    { name: 'idx_school_checkout_date', fields: ['schoolId', 'checkOutAt'] }, // ← baru
   ]
 });
 

@@ -62,7 +62,7 @@ const Student = sequelize.define('Student', {
     type: DataTypes.TEXT, // Gunakan TEXT karena token FCM cukup panjang
     allowNull: true
   },
-    latitude: {
+  latitude: {
     type: DataTypes.DECIMAL(10, 8),
     allowNull: true,
   },

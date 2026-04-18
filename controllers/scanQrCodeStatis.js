@@ -591,3 +591,155 @@ exports.updateFcmToken = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+exports.scanCheckOut = async (req, res) => {
+    const { qrCodeData, userLat, userLon } = req.body;
+    const profile = req.user?.profile || req.user;
+
+    if (!profile) return res.status(401).json({ success: false, message: 'Sesi tidak valid' });
+
+    const { id, role, schoolId } = profile;
+
+    if (!qrCodeData || !schoolId) {
+        return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
+    }
+
+    // Validasi QR (sama seperti check-in)
+    const regex = new RegExp(`^SCHOOL_QR_${schoolId}_(LEFT|RIGHT)$`);
+    if (!regex.test(qrCodeData)) {
+        return res.status(403).json({ success: false, message: 'QR Code tidak valid' });
+    }
+
+    // ── Geofencing ────────────────────────────────────────────────
+    let school = await redis.get(`school_profile:${schoolId}`);
+    school = school ? JSON.parse(school) : await SchoolProfile.findOne({ where: { schoolId }, raw: true });
+
+    if (school?.latitude && school?.longitude) {
+        const distance = getDistance(userLat, userLon, parseFloat(school.latitude), parseFloat(school.longitude));
+        if (distance > 200) {
+            return res.status(403).json({ success: false, message: `Luar jangkauan (${Math.round(distance)}m)` });
+        }
+    }
+
+    // ── Redis guard ───────────────────────────────────────────────
+    const today               = moment().format('YYYY-MM-DD');
+    const secondsUntilEndOfDay = moment().endOf('day').diff(moment(), 'seconds');
+    const isStudent           = role?.toLowerCase?.() === 'siswa' || role === 'student';
+    const entityKey           = isStudent ? `student:${id}` : `guru:${id}`;
+
+    // Pastikan sudah check-in dulu
+    const hasCheckedIn = await redis.get(`absensi_check:${schoolId}:${entityKey}:${today}`);
+    if (!hasCheckedIn) {
+        return res.status(400).json({ success: false, message: 'Anda belum absen masuk hari ini.' });
+    }
+
+    const checkOutCheckKey = `absensi_checkout_check:${schoolId}:${entityKey}:${today}`;
+    const checkOutLockKey  = `absensi_checkout_lock:${schoolId}:${entityKey}:${today}`;
+
+    const alreadyCheckOut = await redis.get(checkOutCheckKey);
+    if (alreadyCheckOut) {
+        return res.status(400).json({ success: false, message: 'Anda sudah absen pulang hari ini.' });
+    }
+
+    // Distributed lock
+    const lockToken = `lock-checkout-${id}-${Date.now()}`;
+    let acquired = await redis.set(checkOutLockKey, lockToken, 'NX', 'PX', 30000);
+    if (!acquired) {
+        await new Promise(r => setTimeout(r, 800));
+        acquired = await redis.set(checkOutLockKey, lockToken, 'NX', 'PX', 30000);
+    }
+    if (!acquired) {
+        return res.status(429).json({ success: false, message: 'Sedang diproses, coba lagi sebentar.' });
+    }
+
+    try {
+        // Ambil profil (pakai cache yang sama dengan check-in)
+        const profileCacheKey = `user_profile:${isStudent ? 'student' : 'guru'}:${id}`;
+        let userProfile = await redis.get(profileCacheKey);
+        userProfile = userProfile 
+            ? JSON.parse(userProfile) 
+            : isStudent
+                ? await Student.findByPk(id, { attributes: ['id', 'name', 'class', 'photoUrl', 'nis'], raw: true })
+                : await GuruTendik.findByPk(id, { attributes: ['id', 'nama', 'photoUrl', 'nip', 'role'], raw: true });
+
+        if (!userProfile) {
+            return res.status(404).json({ success: false, message: 'Profil tidak ditemukan' });
+        }
+
+        const checkOutAt = moment2().tz('Asia/Jakarta').format('YYYY-MM-DD HH:mm:ss');
+
+        // Queue untuk update record check-in
+        await attendanceQueue.add('create-attendance', {
+            jobType:    'checkout',           // ← flag untuk worker
+            id,
+            schoolId,
+            userRole:   isStudent ? 'student' : 'teacher',
+            studentId:  isStudent ? id : null,
+            guruId:     isStudent ? null : id,
+            latitude:   userLat,
+            longitude:  userLon,
+            method:     'qr',
+            checkOutAt,
+            updatedAt:  checkOutAt,
+            targetTable: isStudent ? 'kehadiran' : 'kehadiran_guru',
+        }, {
+            attempts:         3,
+            backoff:          { type: 'fixed', delay: 3000 },
+            jobId:            `${schoolId}-${isStudent ? 'student' : 'guru'}-${id}-${today}-checkout-qr`,
+            removeOnComplete: true,
+            removeOnFail:     false,
+        });
+
+        // Firebase notification
+        const identity = isStudent ? (userProfile.nis || '-') : (userProfile.nip || '-');
+        const userName  = userProfile.name || userProfile.nama;
+
+        adminFirebase.messaging().send({
+            notification: {
+                title: `Pulang: ${isStudent ? 'Siswa' : 'Guru'}`,
+                body:  `${userName} (${identity}) baru saja absen pulang.`,
+            },
+            data: {
+                type:        'CHECKOUT',
+                schoolId:    String(schoolId),
+                role:        isStudent ? 'student' : 'teacher',
+                studentName: String(userName),
+                identity:    String(identity),
+                method:      'qr',
+            },
+            topic: `school_absensi_${schoolId}`
+        }).catch(err => console.warn('[NOTIF CHECKOUT]', err.message));
+
+        // Socket emit
+        setImmediate(() => {
+            try {
+                const io = req.app.get('socketio');
+                if (io) {
+                    io.to(`school-${schoolId}`).emit('attendance:checkout', {
+                        student: {
+                            id:    userProfile.id,
+                            name:  userProfile.name || userProfile.nama,
+                            class: isStudent ? (userProfile.class || userProfile.kelas) : 'GURU/STAFF',
+                            photo: userProfile.photoUrl,
+                            time:  moment().format('HH:mm:ss'),
+                        },
+                        method: 'qr'
+                    });
+                }
+            } catch (e) {
+                console.warn('[SOCKET CHECKOUT]', e.message);
+            }
+        });
+
+        // Set flag checkout
+        await redis.set(checkOutCheckKey, '1', 'EX', secondsUntilEndOfDay);
+
+        return res.json({ success: true, message: 'Absensi pulang berhasil!' });
+
+    } catch (err) {
+        console.error('[ERROR CHECKOUT QR]', err.message);
+        return res.status(500).json({ success: false, message: 'Gagal memproses absensi pulang.' });
+    } finally {
+        await redis.del(checkOutLockKey).catch(() => {});
+    }
+};
