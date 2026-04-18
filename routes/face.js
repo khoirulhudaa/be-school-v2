@@ -6,6 +6,7 @@ const { globalLimiter } = require('../middlewares/rateLimiter');
 
 router.post('/enroll', authMiddleware, faceController.enrollFace);
 router.get('/descriptor', authMiddleware, faceController.getDescriptor);
+router.post('/checkout', faceMiddleware, globalLimiter, faceController.faceCheckOut);
 router.post('/absen', authMiddleware, globalLimiter, faceController.faceAbsen);
 
 module.exports = router;

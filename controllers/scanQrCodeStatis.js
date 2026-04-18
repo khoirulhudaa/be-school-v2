@@ -715,7 +715,13 @@ exports.scanCheckOut = async (req, res) => {
             try {
                 const io = req.app.get('socketio');
                 if (io) {
+                    // Ambil qrPosition dari QR data
+                    const matchPos = qrCodeData.match(new RegExp(`^SCHOOL_QR_${schoolId}_(LEFT|RIGHT)$`));
+                    const qrPosition = matchPos ? matchPos[1].toLowerCase() : 'left';
+
                     io.to(`school-${schoolId}`).emit('attendance:checkout', {
+                        qrPosition,   // ← kunci agar TVLayer tahu tampil di sisi mana
+                        method: 'qr',
                         student: {
                             id:    userProfile.id,
                             name:  userProfile.name || userProfile.nama,
@@ -723,7 +729,6 @@ exports.scanCheckOut = async (req, res) => {
                             photo: userProfile.photoUrl,
                             time:  moment().format('HH:mm:ss'),
                         },
-                        method: 'qr'
                     });
                 }
             } catch (e) {
