@@ -1410,16 +1410,13 @@ exports.getTodayStats = async (req, res) => {
   try {
     const { schoolId, role = 'student' } = req.query;
 
-    // 1. Tentukan Model secara dinamis berdasarkan role
     const isStudent = role === 'student';
     const MainModel = isStudent ? Attendance : KehadiranGuru;
 
-    // 2. Ambil data kehadiran hari ini
     const attendanceData = await MainModel.findAll({
       where: {
         schoolId: parseInt(schoolId),
-        // Filter userRole hanya jika menggunakan model Attendance (siswa)
-        ...(isStudent && { userRole: role }), 
+        ...(isStudent && { userRole: role }),
         createdAt: {
           [Op.between]: [
             moment().startOf('day').toDate(), 
@@ -1427,53 +1424,56 @@ exports.getTodayStats = async (req, res) => {
           ]
         }
       },
+      attributes: ['status', 'createdAt', 'checkOutAt'], // ← Tambahkan checkOutAt
       raw: true 
     });
 
-    // 3. Inisialisasi struktur summary
     const summary = { 
       Hadir: 0, 
       Terlambat: 0, 
-      Sakit: 0, 
       Izin: 0, 
-      Alpha: 0 
+      Sakit: 0, 
+      Alpha: 0,
+      Pulang: 0   // ← BARU
     };
 
     const deadline = "07:00:00";
 
-    // 4. Hitung Statistik
     attendanceData.forEach(item => {
+      const hasCheckedOut = !!item.checkOutAt; // Sudah pulang jika ada checkOutAt
+
       if (item.status === 'Hadir') {
         const scanTime = moment(item.createdAt).format("HH:mm:ss");
 
         if (scanTime > deadline) {
           summary.Terlambat += 1;
-          // Opsional: Jika ingin Terlambat juga dihitung sebagai Hadir, 
-          // aktifkan baris di bawah ini:
-          // summary.Hadir += 1; 
         } else {
           summary.Hadir += 1;
         }
       } else {
-        // Mapping untuk status Sakit, Izin, Alpha
         if (summary.hasOwnProperty(item.status)) {
           summary[item.status] += 1;
         }
       }
+
+      // Hitung yang sudah pulang (hanya untuk siswa)
+      if (isStudent && hasCheckedOut) {
+        summary.Pulang += 1;
+      }
     });
 
-    // 5. Kirim Response
     res.json({ 
       success: true, 
       data: { 
-        role, // Tambahkan info role di response agar frontend yakin
+        role,
         date: moment().format('YYYY-MM-DD'),
         deadlineInfo: deadline,
         ...summary 
       } 
     });
+
   } catch (err) {
-    console.error(`[getTodayStats] Error for role ${role}:`, err);
+    console.error(`[getTodayStats] Error:`, err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
