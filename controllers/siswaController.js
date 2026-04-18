@@ -2229,6 +2229,147 @@ exports.getParentChildren = async (req, res) => {
 //   }
 // };
 
+// exports.getClassRecapWithDetails = async (req, res) => {
+//   try {
+//     const { schoolId, date } = req.query;
+
+//     const targetDate = date 
+//       ? moment.tz(date, 'Asia/Jakarta') 
+//       : moment.tz('Asia/Jakarta');
+
+//     const startDate = targetDate.clone().startOf('day').toDate();
+//     const endDate   = targetDate.clone().endOf('day').toDate();
+
+//     const deadline = "07:00:00";
+
+//     const allStudents = await Student.findAll({
+//       where: { 
+//         schoolId: parseInt(schoolId), 
+//         isActive: true, 
+//         isGraduated: false 
+//       },
+//       attributes: ['id', 'name', 'nis', 'class', 'photoUrl'],
+//       include: [{
+//         model: Attendance,
+//         as: 'studentAttendances',
+//         where: {
+//           createdAt: { [Op.between]: [startDate, endDate] },
+//           userRole: 'student'
+//         },
+//         attributes: ['status', 'createdAt'],
+//         required: false,
+//         limit: 1,
+//         order: [['createdAt', 'ASC']]
+//       }],
+//     });
+
+//     // --- RINGKASAN GLOBAL (DIPISAH) ---
+//     let totalAllStudents = 0;
+//     let totalAllHadir = 0;
+//     let totalAllIzin = 0;
+//     let totalAllPulang = 0;
+//     let totalAllAlpha = 0;
+//     let totalAllBelumHadir = 0;
+
+//     const acc = new Map();
+
+//     for (const student of allStudents) {
+//       const className = student.class || "Tanpa Kelas";
+
+//       if (!acc.has(className)) {
+//         acc.set(className, {
+//           className,
+//           totalStudents: 0,
+//           stats: { 
+//             onTime: 0, 
+//             late: 0, 
+//             izin: 0, 
+//             sakit: 0, 
+//             alpha: 0, 
+//             belumHadir: 0 
+//           },
+//           students: []
+//         });
+//       }
+
+//       const classObj = acc.get(className);
+//       const attendance = student.studentAttendances?.[0];
+
+//       let statusInfo = "Belum Hadir";
+//       let isLate = false;
+//       let scanTime = null;
+
+//       totalAllStudents++;
+//       classObj.totalStudents++;
+
+//       if (attendance) {
+//         scanTime = moment.tz(attendance.createdAt, 'Asia/Jakarta').format("HH:mm:ss");
+//         const normalizedStatus = (attendance.status || '').toLowerCase().trim();
+
+//         if (normalizedStatus === 'hadir') {
+//           totalAllHadir++;
+//           if (scanTime <= deadline) {
+//             classObj.stats.onTime++;
+//             statusInfo = "Hadir";
+//           } else {
+//             classObj.stats.late++;
+//             statusInfo = "Hadir";
+//             isLate = true;
+//           }
+//         } else if (normalizedStatus === 'izin') {
+//           totalAllIzin++;
+//           classObj.stats.izin++;
+//           statusInfo = "Izin";
+//         } else if (normalizedStatus === 'sakit') {
+//           totalAllPulang++;
+//           classObj.stats.sakit++;
+//           statusInfo = "Sakit";
+//         } else if (normalizedStatus === 'alpha') {
+//           totalAllAlpha++;
+//           classObj.stats.alpha++;
+//           statusInfo = "Alpha";
+//         }
+//       } else {
+//         totalAllBelumHadir++;
+//         classObj.stats.belumHadir++;
+//         statusInfo = "Belum Hadir";
+//       }
+
+//       classObj.students.push({
+//         id: student.id,
+//         name: student.name,
+//         nis: student.nis,
+//         status: statusInfo,
+//         scanTime,
+//         isLate,
+//         photoUrl: student.photoUrl
+//       });
+//     }
+
+//     const sortedData = Array.from(acc.values()).sort((a, b) => 
+//       a.className.localeCompare(b.className, undefined, { numeric: true })
+//     );
+
+//     res.json({
+//       success: true,
+//       summary: { 
+//         totalAllStudents, 
+//         totalAllHadir, 
+//         totalAllIzin,    // Terpisah
+//         totalAllPulang,   // Terpisah
+//         totalAllAlpha,   // Terpisah
+//         totalAllBelumHadir,
+//         date: targetDate.format('YYYY-MM-DD')
+//       },
+//       data: sortedData
+//     });
+
+//   } catch (err) {
+//     console.error('[getClassRecapWithDetails] Error:', err);
+//     res.status(500).json({ success: false, message: "Internal Server Error" });
+//   }
+// };
+
 exports.getClassRecapWithDetails = async (req, res) => {
   try {
     const { schoolId, date } = req.query;
@@ -2256,18 +2397,18 @@ exports.getClassRecapWithDetails = async (req, res) => {
           createdAt: { [Op.between]: [startDate, endDate] },
           userRole: 'student'
         },
-        attributes: ['status', 'createdAt'],
+        attributes: ['status', 'createdAt', 'checkOutAt'], // ← tambah checkOutAt
         required: false,
         limit: 1,
         order: [['createdAt', 'ASC']]
       }],
     });
 
-    // --- RINGKASAN GLOBAL (DIPISAH) ---
+    // --- RINGKASAN GLOBAL ---
     let totalAllStudents = 0;
     let totalAllHadir = 0;
     let totalAllIzin = 0;
-    let totalAllSakit = 0;
+    let totalAllPulang = 0;     // ← GANTI dari totalAllSakit
     let totalAllAlpha = 0;
     let totalAllBelumHadir = 0;
 
@@ -2284,7 +2425,7 @@ exports.getClassRecapWithDetails = async (req, res) => {
             onTime: 0, 
             late: 0, 
             izin: 0, 
-            sakit: 0, 
+            pulang: 0,      // ← baru
             alpha: 0, 
             belumHadir: 0 
           },
@@ -2296,14 +2437,16 @@ exports.getClassRecapWithDetails = async (req, res) => {
       const attendance = student.studentAttendances?.[0];
 
       let statusInfo = "Belum Hadir";
-      let isLate = false;
       let scanTime = null;
+      let hasCheckedOut = false;
 
       totalAllStudents++;
       classObj.totalStudents++;
 
       if (attendance) {
         scanTime = moment.tz(attendance.createdAt, 'Asia/Jakarta').format("HH:mm:ss");
+        hasCheckedOut = !!attendance.checkOutAt; // ← Cek apakah sudah pulang
+
         const normalizedStatus = (attendance.status || '').toLowerCase().trim();
 
         if (normalizedStatus === 'hadir') {
@@ -2314,20 +2457,26 @@ exports.getClassRecapWithDetails = async (req, res) => {
           } else {
             classObj.stats.late++;
             statusInfo = "Hadir";
-            isLate = true;
           }
         } else if (normalizedStatus === 'izin') {
           totalAllIzin++;
           classObj.stats.izin++;
           statusInfo = "Izin";
         } else if (normalizedStatus === 'sakit') {
-          totalAllSakit++;
-          classObj.stats.sakit++;
+          // Tetap hitung sakit jika diperlukan, tapi tidak ditampilkan di ringkasan utama
           statusInfo = "Sakit";
         } else if (normalizedStatus === 'alpha') {
           totalAllAlpha++;
           classObj.stats.alpha++;
           statusInfo = "Alpha";
+        }
+
+        // Hitung yang sudah pulang
+        if (hasCheckedOut) {
+          totalAllPulang++;
+          classObj.stats.pulang++;
+          // Optional: ubah statusInfo jadi "Pulang" jika mau
+          // statusInfo = "Pulang";
         }
       } else {
         totalAllBelumHadir++;
@@ -2341,8 +2490,8 @@ exports.getClassRecapWithDetails = async (req, res) => {
         nis: student.nis,
         status: statusInfo,
         scanTime,
-        isLate,
-        photoUrl: student.photoUrl
+        photoUrl: student.photoUrl,
+        checkOutAt: attendance?.checkOutAt ? moment.tz(attendance.checkOutAt, 'Asia/Jakarta').format("HH:mm:ss") : null,
       });
     }
 
@@ -2355,9 +2504,9 @@ exports.getClassRecapWithDetails = async (req, res) => {
       summary: { 
         totalAllStudents, 
         totalAllHadir, 
-        totalAllIzin,    // Terpisah
-        totalAllSakit,   // Terpisah
-        totalAllAlpha,   // Terpisah
+        totalAllIzin,
+        totalAllPulang,     // ← Baru (menggantikan totalAllSakit)
+        totalAllAlpha,
         totalAllBelumHadir,
         date: targetDate.format('YYYY-MM-DD')
       },
