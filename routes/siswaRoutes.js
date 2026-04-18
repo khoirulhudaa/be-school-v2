@@ -42,11 +42,11 @@ router.get('/share-rekap-progress', studentController.shareRekapProgress);
 // Statistik Dashboard (Hadir, Sakit, Izin, Alpha hari ini)
 router.get('/today-stats', studentController.getTodayStats);
 router.get('/summary-attendances', studentController.getAttendanceSummary);
+router.get('/attendance-report', optionalAuth, globalLimiter, studentController.getAttendanceReport);
 router.get('/early-warning', studentController.getEarlyWarningReport);
 router.get('/hall-of-fame', studentController.getPublicHallOfFame);
 
 // Endpoint Laporan & Export (Perbaikan ejaan: attendance)
-router.get('/attendance-report', optionalAuth, globalLimiter, studentController.getAttendanceReport);
 router.get('/export-attendance', studentController.exportAttendanceExcel);
 router.get('/recap-kelas', optionalAuth, globalLimiter, studentController.getClassRecapWithDetails);
 router.get('/global-stats', optionalAuth, globalLimiter, studentController.getGlobalAttendanceStats);

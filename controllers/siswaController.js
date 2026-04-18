@@ -1089,7 +1089,7 @@ exports.getUserDetail = async (req, res) => {
           createdAt: { [Op.between]: [startDate, endDate] }
         },
         required: false,
-        attributes: ['id', 'status', 'createdAt'] // hanya yang dibutuhkan
+        attributes: ['id', 'status', 'createdAt', 'checkOutAt'] // hanya yang dibutuhkan
       }
     ];
 
@@ -1527,60 +1527,46 @@ exports.getAttendanceReport = async (req, res) => {
 
     const deadline = "07:00:00";
 
-    // const processedRows = rows.map(record => {
-    //   const attendance = record.toJSON();
-    //   const scanTime = moment(attendance.createdAt).format("HH:mm:ss");
-      
-    //   // Ambil data user dari alias yang dinamis (student atau guru)
-    //   const userData = isStudent ? attendance.student : attendance.guru;
-      
-    //   return {
-    //     ...attendance,
-    //     name: userData?.name || userData?.nama || '-', // Fallback nama
-    //     identifier: isStudent ? userData?.nis : userData?.role, // NIS atau Jabatan
-    //     isLate: attendance.status === 'Hadir' && scanTime > deadline,
-    //     scanTime: scanTime,
-    //   };
-    // });
-
     const processedRows = rows.map(record => {
       const attendance = record.toJSON();
       
-      // Ambil waktu scan dalam format moment agar bisa dimanipulasi
       const createdAtMoment = moment(attendance.createdAt);
       const scanTime = createdAtMoment.format("HH:mm:ss");
       
-      // Tentukan apakah terlambat
       const isLate = attendance.status === 'Hadir' && scanTime > deadline;
       
-      // Hitung durasi keterlambatan jika statusnya terlambat
       let lateDuration = "0 Menit";
       if (isLate) {
-        const deadlineMoment = moment(deadline, "HH:mm:ss");
-        
-        // Hitung selisih dalam menit
         const diffInMinutes = createdAtMoment.diff(
-          moment(createdAtMoment).set({
-            hour: 7,
-            minute: 0,
-            second: 0,
-            millisecond: 0
-          }), 
+          moment(createdAtMoment).set({ hour: 7, minute: 0, second: 0 }), 
           'minutes'
         );
-        
-        lateDuration = `${diffInMinutes}`;
+        lateDuration = `${diffInMinutes} Menit`;
+      }
+
+      // === TAMBAHAN BARU UNTUK STATUS "PULANG" ===
+      let displayStatus = attendance.status;
+      let isPulang = false;
+
+      // Jika ada checkOutAt → berarti sudah pulang
+      if (attendance.checkOutAt) {
+        isPulang = true;
+        displayStatus = "Pulang";
       }
 
       const userData = isStudent ? attendance.student : attendance.guru;
-      
+
       return {
         ...attendance,
         name: userData?.name || userData?.nama || '-',
         identifier: isStudent ? userData?.nis : userData?.role,
         isLate: isLate,
         scanTime: scanTime,
-        lateDuration: lateDuration, // <-- Field baru ditambahkan di sini
+        lateDuration: lateDuration,
+        
+        // Field baru untuk frontend
+        isPulang: isPulang,
+        displayStatus: displayStatus   // ← ini yang akan ditampilkan di badge
       };
     });
 
@@ -1598,6 +1584,7 @@ exports.getAttendanceReport = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 
 exports.exportAttendanceExcel = async (req, res) => {
   try {
