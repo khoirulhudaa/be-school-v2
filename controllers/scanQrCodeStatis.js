@@ -742,8 +742,14 @@ exports.scanCheckOut = async (req, res) => {
         return res.json({ success: true, message: 'Absensi pulang berhasil!' });
 
     } catch (err) {
-        console.error('[ERROR CHECKOUT QR]', err.message);
-        return res.status(500).json({ success: false, message: 'Gagal memproses absensi pulang.' });
+       // Tampilkan stack trace lengkap di PM2 Logs
+        console.error('[CRITICAL ERROR CHECKOUT]', err); 
+        
+        return res.status(500).json({ 
+            success: false, 
+            message: 'Gagal memproses server (Internal Error)',
+            error_detail: err.message // Mengirim pesan error asli ke client
+        });
     } finally {
         await redis.del(checkOutLockKey).catch(() => {});
     }

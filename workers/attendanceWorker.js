@@ -91,6 +91,10 @@ const worker = new Worker(
       const Model = saveToGuruTable ? KehadiranGuru : Attendance;
       const today = moment().tz('Asia/Jakarta').format('YYYY-MM-DD');
 
+      // Gunakan STRING format untuk range pencarian, bukan Date Object
+      const startTime = `${today} 00:00:00`;
+      const endTime = `${today} 23:59:59`;
+
       const whereClause = {
         schoolId:   data.schoolId,
         checkOutAt: null,
@@ -99,18 +103,20 @@ const worker = new Worker(
           : { studentId: data.studentId }
         ),
         createdAt: {
-          [Op.between]: [
-            moment.tz(`${today} 00:00:00`, 'Asia/Jakarta').toDate(),
-            moment.tz(`${today} 23:59:59`, 'Asia/Jakarta').toDate(),
-          ]
+          [Op.between]: [startTime, endTime] // Perbandingan String lebih akurat untuk format manual
         }
       };
+
+      console.log(`[DEBUG WORKER] Mencari check-in untuk ID ${data.guruId || data.studentId} di range: ${startTime} - ${endTime}`);
 
       const record = await Model.findOne({ where: whereClause });
 
       if (!record) {
-        console.warn(`[WORKER CHECKOUT] No check-in record found | jobId:${job.id}`);
-        return; // bukan error, data check-in mungkin belum masuk — job selesai
+          console.warn(`[WORKER CHECKOUT] Record TIDAK ketemu! 
+            ID: ${data.guruId || data.studentId} 
+            School: ${data.schoolId} 
+            Range: ${todayStart} - ${todayEnd}`);
+          return; 
       }
 
       await record.update({
