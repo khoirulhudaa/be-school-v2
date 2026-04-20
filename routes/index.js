@@ -50,10 +50,11 @@
 
     router.use('/auth', require('./authRoutes'));
     router.use('/profile', require('./updateProfileRouter'));
-
+    
     // ── Mount routes dengan limiter khusus ────────────────────────────────
-
+    
     // Route sensitif (create/update banyak) → pakai strictLimiter
+    router.use('/bimbingan-konselling', konsellingRoutes);
     router.use('/berita', beritaRouter);
     router.use('/pengumuman', pengumumanRouter);
     router.use('/alumni', alumniRouter);
@@ -89,7 +90,6 @@
     router.use('/export-excel', exportExcel);
     router.use('/sekolah', dataSekolah);
     router.use('/tugas', tugasSekolah);
-    router.use('/konselling', konsellingRoutes);
     router.use('/scan-qr', scanQrStatis);
     router.use('/orang-tua', orangTua);
     router.use('/face', faceRouter);
