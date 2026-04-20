@@ -91,17 +91,47 @@ exports.updateKuis = async (req, res) => {
     const kuis = await BkKuis.findByPk(req.params.id);
     if (!kuis) return res.status(404).json({ success: false, message: 'Kuis tidak ditemukan' });
 
-    const { judul, deskripsi, kategori } = req.body;
+    // Update field kuis
+    const { judul, deskripsi, kategori, soal } = req.body;
     if (judul !== undefined) kuis.judul = judul;
     if (deskripsi !== undefined) kuis.deskripsi = deskripsi;
     if (kategori !== undefined) kuis.kategori = kategori;
     await kuis.save();
 
-    res.json({ success: true, data: kuis });
+    // Sync soal: hapus semua soal lama, insert soal baru
+    if (soal && Array.isArray(soal)) {
+      // Hapus semua soal lama milik kuis ini
+      await BkSoal.destroy({ where: { kuisId: kuis.id } });
+
+      // Insert soal baru (skip soal yang pertanyaannya kosong)
+      const validSoal = soal.filter(s => s.pertanyaan && s.pertanyaan.trim() !== '');
+      if (validSoal.length > 0) {
+        const soalData = validSoal.map((s, idx) => ({
+          kuisId: kuis.id,
+          tipe: s.tipe || 'likert',
+          pertanyaan: s.pertanyaan.trim(),
+          urutan: s.urutan ?? idx,
+          labelOpsi0: s.labelOpsi0 || 'Tidak Pernah',
+          labelOpsi1: s.labelOpsi1 || 'Kadang-Kadang',
+          labelOpsi2: s.labelOpsi2 || 'Sering',
+        }));
+        await BkSoal.bulkCreate(soalData);
+      }
+    }
+
+    // Return kuis + soal terbaru
+    const result = await BkKuis.findByPk(kuis.id);
+    const soalList = await BkSoal.findAll({
+      where: { kuisId: kuis.id },
+      order: [['urutan', 'ASC']],
+    });
+
+    res.json({ success: true, data: { ...result.toJSON(), soal: soalList } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 
 exports.deleteKuis = async (req, res) => {
   try {
