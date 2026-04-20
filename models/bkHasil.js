@@ -20,6 +20,20 @@ const BkHasil = sequelize.define('BkHasil', {
     type: DataTypes.ENUM('baik', 'perlu_perhatian', 'perlu_intervensi'),
     defaultValue: 'baik',
   },
+  // di model BkHasil.js
+  skorEssay: {
+    type: DataTypes.JSON,        // contoh: { "45": 85, "46": 70 }
+    allowNull: true,
+    defaultValue: {}
+  },
+  totalSkorEssay: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  maxSkorEssay: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
   tindakLanjut: {
     type: DataTypes.ENUM('apresiasi', 'konseling_individu', 'konseling_intensif'),
     defaultValue: 'apresiasi',

@@ -9,6 +9,7 @@ const BkSoal = sequelize.define('BkSoal', {
     allowNull: false,
     defaultValue: 'likert',
   },
+  
   pertanyaan: { type: DataTypes.TEXT, allowNull: false },
   urutan: { type: DataTypes.INTEGER, defaultValue: 0 },
   // For likert: bobot per opsi (0,1,2)
