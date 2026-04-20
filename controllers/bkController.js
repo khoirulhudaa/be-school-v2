@@ -437,61 +437,106 @@ exports.deleteJadwal = async (req, res) => {
   }
 };
 
+function hitungSkorGabungan(totalLikert, maxLikert, totalEssay, maxEssay) {
+  const totalDapat = (totalLikert || 0) + (totalEssay || 0);
+  const totalMax = (maxLikert || 0) + (maxEssay || 0);
+
+  if (totalMax === 0) return { level: 'baik', tindakLanjut: 'apresiasi', persentase: 0 };
+
+  const persen = (totalDapat / totalMax) * 100;
+  let level, tindakLanjut;
+
+  if (persen <= 30) {
+    level = 'baik';
+    tindakLanjut = 'apresiasi';
+  } else if (persen <= 60) {
+    level = 'perlu_perhatian';
+    tindakLanjut = 'konseling_individu';
+  } else {
+    level = 'perlu_intervensi';
+    tindakLanjut = 'konseling_intensif';
+  }
+
+  return { 
+    level, 
+    tindakLanjut, 
+    persentase: parseFloat(persen.toFixed(2)) 
+  };
+}
+
+// ══════════════════════════════════════════════
+// UPDATE ESSAY SCORE
+// ══════════════════════════════════════════════
 exports.updateEssayScore = async (req, res) => {
   try {
     const { id } = req.params;
     const { skorEssay, catatanEssay } = req.body;
 
-    // Validasi input
+    // 1. Validasi input
     if (!skorEssay || typeof skorEssay !== 'object') {
       return res.status(400).json({ 
         success: false, 
-        message: 'skorEssay harus berupa object' 
+        message: 'skorEssay harus berupa object (e.g. { "soalId": nilai })' 
       });
     }
 
+    // 2. Cari data hasil
     const hasil = await BkHasil.findByPk(id);
     if (!hasil) {
       return res.status(404).json({ success: false, message: 'Hasil tidak ditemukan' });
     }
 
-    // Update skorEssay
+    // 3. Update data JSON (merge dengan data lama jika ada)
     hasil.skorEssay = { ...(hasil.skorEssay || {}), ...skorEssay };
-
-    // Update catatanEssay jika ada
+    
     if (catatanEssay && typeof catatanEssay === 'object') {
       hasil.catatanEssay = { ...(hasil.catatanEssay || {}), ...catatanEssay };
     }
 
-    // Hitung ulang totalSkorEssay dan maxSkorEssay
+    // 4. Hitung ulang totalSkorEssay dan maxSkorEssay
+    // Kita asumsikan max score per soal essay adalah 100
+    const currentSkorEntries = Object.entries(hasil.skorEssay);
     let totalSkorEssay = 0;
-    const currentSkorEssay = hasil.skorEssay || {};
-
-    Object.values(currentSkorEssay).forEach((skor) => {
-      totalSkorEssay += parseInt(skor) || 0;
+    
+    currentSkorEntries.forEach(([_, nilai]) => {
+      totalSkorEssay += parseInt(nilai) || 0;
     });
 
-    // maxSkorEssay = jumlah soal essay × 100
-    const jumlahEssay = Object.keys(currentSkorEssay).length;
-    const maxSkorEssay = jumlahEssay * 100;
+    const jumlahSoalEssay = currentSkorEntries.length;
+    const maxSkorEssay = jumlahSoalEssay * 100;
 
     hasil.totalSkorEssay = totalSkorEssay;
     hasil.maxSkorEssay = maxSkorEssay;
 
-    await hasil.save();
+    // 5. RE-KALKULASI SKOR AKHIR GABUNGAN
+    // Ini akan memperbarui levelMasalah dan tindakLanjut berdasarkan nilai baru
+    const kalkulasiBaru = hitungSkorGabungan(
+      hasil.totalSkorLikert,
+      hasil.maxSkorLikert,
+      totalSkorEssay,
+      maxSkorEssay
+    );
 
-    console.log(`✅ Essay score updated for hasil ID ${id}`);
+    hasil.persentaseSkor = kalkulasiBaru.persentase;
+    hasil.levelMasalah = kalkulasiBaru.level;
+    hasil.tindakLanjut = kalkulasiBaru.tindakLanjut;
+
+    // 6. Simpan ke Database
+    await hasil.save();
 
     res.json({
       success: true,
-      message: 'Penilaian essay berhasil disimpan',
+      message: 'Penilaian essay berhasil diperbarui',
       data: {
-        skorEssay: hasil.skorEssay,
-        catatanEssay: hasil.catatanEssay,
+        persentaseSkor: hasil.persentaseSkor,
+        levelMasalah: hasil.levelMasalah,
+        tindakLanjut: hasil.tindakLanjut,
         totalSkorEssay: hasil.totalSkorEssay,
-        maxSkorEssay: hasil.maxSkorEssay
+        maxSkorEssay: hasil.maxSkorEssay,
+        skorEssay: hasil.skorEssay
       }
     });
+
   } catch (err) {
     console.error("Error updateEssayScore:", err);
     res.status(500).json({ success: false, message: err.message });
