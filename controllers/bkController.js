@@ -436,3 +436,59 @@ exports.deleteJadwal = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ──────────────────────────────────────────────
+// PATCH /hasil/:id/essay  → Simpan skor & catatan essay
+// ──────────────────────────────────────────────
+exports.updateEssayScore = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { skorEssay, catatanEssay } = req.body;
+
+    const hasil = await BkHasil.findByPk(id);
+    if (!hasil) {
+      return res.status(404).json({ success: false, message: 'Hasil tidak ditemukan' });
+    }
+
+    // Update skorEssay (JSON)
+    if (skorEssay && typeof skorEssay === 'object') {
+      hasil.skorEssay = { ...(hasil.skorEssay || {}), ...skorEssay };
+    }
+
+    // Update catatanEssay (JSON) - opsional
+    if (catatanEssay && typeof catatanEssay === 'object') {
+      hasil.catatanEssay = { ...(hasil.catatanEssay || {}), ...catatanEssay };
+    }
+
+    // Hitung ulang totalSkorEssay dan maxSkorEssay
+    let totalSkorEssay = 0;
+    let maxSkorEssay = 0;
+
+    const essaySoalCount = Object.keys(hasil.skorEssay || {}).length;
+    if (essaySoalCount > 0) {
+      Object.values(hasil.skorEssay).forEach(skor => {
+        totalSkorEssay += parseInt(skor) || 0;
+      });
+      maxSkorEssay = essaySoalCount * 100; // maksimal 100 per soal essay
+    }
+
+    hasil.totalSkorEssay = totalSkorEssay;
+    hasil.maxSkorEssay = maxSkorEssay;
+
+    await hasil.save();
+
+    res.json({
+      success: true,
+      message: 'Penilaian essay berhasil disimpan',
+      data: {
+        skorEssay: hasil.skorEssay,
+        totalSkorEssay: hasil.totalSkorEssay,
+        maxSkorEssay: hasil.maxSkorEssay,
+        catatanEssay: hasil.catatanEssay
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

@@ -34,6 +34,11 @@ const BkHasil = sequelize.define('BkHasil', {
     type: DataTypes.INTEGER,
     defaultValue: 0
   },
+  catatanEssay: {           // ← tambahan baru (opsional)
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: {}
+  },
   tindakLanjut: {
     type: DataTypes.ENUM('apresiasi', 'konseling_individu', 'konseling_intensif'),
     defaultValue: 'apresiasi',

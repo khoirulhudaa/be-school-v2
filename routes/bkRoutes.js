@@ -13,6 +13,7 @@ router.get('/soal/kuis/:kuisId', bk.getSoalByKuis);
 router.post('/soal', bk.createSoal);       
 router.put('/soal/:id', bk.updateSoal);    
 router.delete('/soal/:id', bk.deleteSoal); 
+router.patch('/:id/essay', bk.updateEssayScore);
 
 router.post('/submit', bk.submitKuis); 
 
