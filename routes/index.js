@@ -89,7 +89,7 @@
     router.use('/export-excel', exportExcel);
     router.use('/sekolah', dataSekolah);
     router.use('/tugas', tugasSekolah);
-    router.use('/konselling', konselling);
+    router.use('/konselling', konsellingRoutes);
     router.use('/scan-qr', scanQrStatis);
     router.use('/orang-tua', orangTua);
     router.use('/face', faceRouter);
