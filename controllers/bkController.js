@@ -2,7 +2,7 @@ const BkKuis = require('../models/bkKuis');
 const BkSoal = require('../models/bkSoal');
 const BkHasil = require('../models/bkHasil');
 const BkJadwal = require('../models/bkJadwal');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 
 // ══════════════════════════════════════════════
 // KUIS CRUD
@@ -17,9 +17,43 @@ exports.getKuis = async (req, res) => {
     if (kategori) where.kategori = kategori;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const { count, rows } = await BkKuis.findAndCountAll({ where, order: [['createdAt', 'DESC']], limit: parseInt(limit), offset });
 
-    res.json({ success: true, data: rows, total: count, page: parseInt(page), totalPages: Math.ceil(count / limit) });
+    const { count, rows } = await BkKuis.findAndCountAll({
+      where,
+      attributes: {
+        include: [
+          // Subquery untuk menghitung soal Likert
+          [
+            Sequelize.literal(`(
+              SELECT COUNT(*)
+              FROM bk_soal AS soal
+              WHERE soal.kuisId = BkKuis.id AND soal.tipe = 'likert'
+            )`),
+            'jmlSoalLikert'
+          ],
+          // Subquery untuk menghitung soal Essay
+          [
+            Sequelize.literal(`(
+              SELECT COUNT(*)
+              FROM bk_soal AS soal
+              WHERE soal.kuisId = BkKuis.id AND soal.tipe = 'essay'
+            )`),
+            'jmlSoalEssay'
+          ]
+        ]
+      },
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: offset,
+    });
+
+    res.json({ 
+      success: true, 
+      data: rows, 
+      total: count, 
+      page: parseInt(page), 
+      totalPages: Math.ceil(count / limit) 
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
