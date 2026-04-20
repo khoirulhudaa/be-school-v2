@@ -437,58 +437,63 @@ exports.deleteJadwal = async (req, res) => {
   }
 };
 
-// ──────────────────────────────────────────────
-// PATCH /hasil/:id/essay  → Simpan skor & catatan essay
-// ──────────────────────────────────────────────
 exports.updateEssayScore = async (req, res) => {
   try {
     const { id } = req.params;
     const { skorEssay, catatanEssay } = req.body;
+
+    // Validasi input
+    if (!skorEssay || typeof skorEssay !== 'object') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'skorEssay harus berupa object' 
+      });
+    }
 
     const hasil = await BkHasil.findByPk(id);
     if (!hasil) {
       return res.status(404).json({ success: false, message: 'Hasil tidak ditemukan' });
     }
 
-    // Update skorEssay (JSON)
-    if (skorEssay && typeof skorEssay === 'object') {
-      hasil.skorEssay = { ...(hasil.skorEssay || {}), ...skorEssay };
-    }
+    // Update skorEssay
+    hasil.skorEssay = { ...(hasil.skorEssay || {}), ...skorEssay };
 
-    // Update catatanEssay (JSON) - opsional
+    // Update catatanEssay jika ada
     if (catatanEssay && typeof catatanEssay === 'object') {
       hasil.catatanEssay = { ...(hasil.catatanEssay || {}), ...catatanEssay };
     }
 
     // Hitung ulang totalSkorEssay dan maxSkorEssay
     let totalSkorEssay = 0;
-    let maxSkorEssay = 0;
+    const currentSkorEssay = hasil.skorEssay || {};
 
-    const essaySoalCount = Object.keys(hasil.skorEssay || {}).length;
-    if (essaySoalCount > 0) {
-      Object.values(hasil.skorEssay).forEach(skor => {
-        totalSkorEssay += parseInt(skor) || 0;
-      });
-      maxSkorEssay = essaySoalCount * 100; // maksimal 100 per soal essay
-    }
+    Object.values(currentSkorEssay).forEach((skor) => {
+      totalSkorEssay += parseInt(skor) || 0;
+    });
+
+    // maxSkorEssay = jumlah soal essay × 100
+    const jumlahEssay = Object.keys(currentSkorEssay).length;
+    const maxSkorEssay = jumlahEssay * 100;
 
     hasil.totalSkorEssay = totalSkorEssay;
     hasil.maxSkorEssay = maxSkorEssay;
 
     await hasil.save();
 
+    console.log(`✅ Essay score updated for hasil ID ${id}`);
+
     res.json({
       success: true,
       message: 'Penilaian essay berhasil disimpan',
       data: {
         skorEssay: hasil.skorEssay,
+        catatanEssay: hasil.catatanEssay,
         totalSkorEssay: hasil.totalSkorEssay,
-        maxSkorEssay: hasil.maxSkorEssay,
-        catatanEssay: hasil.catatanEssay
+        maxSkorEssay: hasil.maxSkorEssay
       }
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error updateEssayScore:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
