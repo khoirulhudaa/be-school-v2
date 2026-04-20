@@ -89,45 +89,57 @@ exports.createKuis = async (req, res) => {
 exports.updateKuis = async (req, res) => {
   try {
     const kuis = await BkKuis.findByPk(req.params.id);
-    if (!kuis) return res.status(404).json({ success: false, message: 'Kuis tidak ditemukan' });
+    if (!kuis) {
+      return res.status(404).json({ success: false, message: 'Kuis tidak ditemukan' });
+    }
 
-    // Update field kuis
     const { judul, deskripsi, kategori, soal } = req.body;
+
+    // Update data kuis utama
     if (judul !== undefined) kuis.judul = judul;
     if (deskripsi !== undefined) kuis.deskripsi = deskripsi;
     if (kategori !== undefined) kuis.kategori = kategori;
     await kuis.save();
 
-    // Sync soal: hapus semua soal lama, insert soal baru
+    // === SYNC SOAL (HAPUS SEMUA & BUAT ULANG) ===
     if (soal && Array.isArray(soal)) {
-      // Hapus semua soal lama milik kuis ini
+      // 1. Hapus semua soal lama
       await BkSoal.destroy({ where: { kuisId: kuis.id } });
 
-      // Insert soal baru (skip soal yang pertanyaannya kosong)
-      const validSoal = soal.filter(s => s.pertanyaan && s.pertanyaan.trim() !== '');
-      if (validSoal.length > 0) {
-        const soalData = validSoal.map((s, idx) => ({
-          kuisId: kuis.id,
+      // 2. Siapkan soal baru (PASTIKAN kuisId selalu ada)
+      const validSoal = soal
+        .filter(s => s.pertanyaan && String(s.pertanyaan).trim() !== '')
+        .map((s, idx) => ({
+          kuisId: kuis.id,                    // ← INI YANG PENTING!
           tipe: s.tipe || 'likert',
-          pertanyaan: s.pertanyaan.trim(),
+          pertanyaan: String(s.pertanyaan).trim(),
           urutan: s.urutan ?? idx,
           labelOpsi0: s.labelOpsi0 || 'Tidak Pernah',
           labelOpsi1: s.labelOpsi1 || 'Kadang-Kadang',
           labelOpsi2: s.labelOpsi2 || 'Sering',
         }));
-        await BkSoal.bulkCreate(soalData);
+
+      if (validSoal.length > 0) {
+        await BkSoal.bulkCreate(validSoal);
       }
     }
 
-    // Return kuis + soal terbaru
-    const result = await BkKuis.findByPk(kuis.id);
+    // 3. Ambil data terbaru
     const soalList = await BkSoal.findAll({
       where: { kuisId: kuis.id },
       order: [['urutan', 'ASC']],
     });
 
-    res.json({ success: true, data: { ...result.toJSON(), soal: soalList } });
+    res.json({
+      success: true,
+      data: {
+        ...kuis.toJSON(),
+        soal: soalList
+      }
+    });
+
   } catch (err) {
+    console.error("Error updateKuis:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
