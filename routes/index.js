@@ -45,6 +45,7 @@
     const absenRoutes = require('./absenRoutes');
     const aktivitasRoutes = require('./aktivitasRoutes');
     const biroJodohRoutes = require('./biroJodohRoutes');
+    const konsellingRoutes = require('./bkRoutes');
     const notificationRoutes = require('./notificationRoutes');
 
     router.use('/auth', require('./authRoutes'));
@@ -88,6 +89,7 @@
     router.use('/export-excel', exportExcel);
     router.use('/sekolah', dataSekolah);
     router.use('/tugas', tugasSekolah);
+    router.use('/konselling', konselling);
     router.use('/scan-qr', scanQrStatis);
     router.use('/orang-tua', orangTua);
     router.use('/face', faceRouter);
