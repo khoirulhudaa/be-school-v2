@@ -4,26 +4,6 @@ const BkHasil = require('../models/bkHasil');
 const BkJadwal = require('../models/bkJadwal');
 const { Op } = require('sequelize');
 
-// ──────────────────────────────────────────────
-// Helper: Hitung level dan tindak lanjut
-// ──────────────────────────────────────────────
-function hitungLevel(totalSkor, maxSkor) {
-  if (maxSkor === 0) return { level: 'baik', tindakLanjut: 'apresiasi', persentase: 0 };
-  const persen = (totalSkor / maxSkor) * 100;
-  let level, tindakLanjut;
-  if (persen <= 30) {
-    level = 'baik';
-    tindakLanjut = 'apresiasi';
-  } else if (persen <= 60) {
-    level = 'perlu_perhatian';
-    tindakLanjut = 'konseling_individu';
-  } else {
-    level = 'perlu_intervensi';
-    tindakLanjut = 'konseling_intensif';
-  }
-  return { level, tindakLanjut, persentase: parseFloat(persen.toFixed(2)) };
-}
-
 // ══════════════════════════════════════════════
 // KUIS CRUD
 // ══════════════════════════════════════════════
@@ -212,6 +192,26 @@ exports.deleteSoal = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ──────────────────────────────────────────────
+// Helper: Hitung level dan tindak lanjut
+// ──────────────────────────────────────────────
+function hitungLevel(totalSkor, maxSkor) {
+  if (maxSkor === 0) return { level: 'baik', tindakLanjut: 'apresiasi', persentase: 0 };
+  const persen = (totalSkor / maxSkor) * 100;
+  let level, tindakLanjut;
+  if (persen <= 30) {
+    level = 'baik';
+    tindakLanjut = 'apresiasi';
+  } else if (persen <= 60) {
+    level = 'perlu_perhatian';
+    tindakLanjut = 'konseling_individu';
+  } else {
+    level = 'perlu_intervensi';
+    tindakLanjut = 'konseling_intensif';
+  }
+  return { level, tindakLanjut, persentase: parseFloat(persen.toFixed(2)) };
+}
 
 // ══════════════════════════════════════════════
 // SUBMIT KUIS (Siswa mengisi kuis)
@@ -520,7 +520,6 @@ exports.updateEssayScore = async (req, res) => {
     hasil.persentaseSkor = kalkulasiBaru.persentase;
     hasil.levelMasalah = kalkulasiBaru.level;
     hasil.tindakLanjut = kalkulasiBaru.tindakLanjut;
-
     // 6. Simpan ke Database
     await hasil.save();
 
@@ -528,6 +527,7 @@ exports.updateEssayScore = async (req, res) => {
       success: true,
       message: 'Penilaian essay berhasil diperbarui',
       data: {
+        ...hasil.toJSON(), // Mengirimkan seluruh objek hasil yang sudah di-save
         persentaseSkor: hasil.persentaseSkor,
         levelMasalah: hasil.levelMasalah,
         tindakLanjut: hasil.tindakLanjut,
