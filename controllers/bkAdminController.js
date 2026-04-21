@@ -262,6 +262,71 @@ exports.deleteAdmin = async (req, res) => {
   }
 };
 
+exports.updateMyProfile = async (req, res) => {
+  try {
+    const admin = await BkAdmin.findByPk(req.admin.id);
+
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin tidak ditemukan' });
+    }
+
+    const { nama, email, photoUrl } = req.body;
+
+    if (nama) admin.nama = nama;
+    if (email) admin.email = email.toLowerCase();
+    if (photoUrl !== undefined) admin.photoUrl = photoUrl;
+
+    await admin.save();
+
+    res.json({
+      success: true,
+      data: {
+        ...admin.toJSON(),
+        permissions: ROLE_PERMISSIONS[admin.role],
+      },
+    });
+
+  } catch (err) {
+    console.error('updateMyProfile error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.changeMyPassword = async (req, res) => {
+  try {
+    const admin = await BkAdmin.findByPk(req.admin.id);
+
+    if (!admin) {
+      return res.status(404).json({ success: false, message: 'Admin tidak ditemukan' });
+    }
+
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Password wajib diisi' });
+    }
+
+    const isMatch = await bcrypt.compare(oldPassword, admin.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Password lama salah' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password minimal 6 karakter' });
+    }
+
+    admin.password = await bcrypt.hash(newPassword, 12);
+    await admin.save();
+
+    res.json({ success: true, message: 'Password berhasil diubah' });
+
+  } catch (err) {
+    console.error('changeMyPassword error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────
 // EXPORT PERMISSIONS MAP (untuk dipakai di frontend juga)
 // ─────────────────────────────────────────────────────────────

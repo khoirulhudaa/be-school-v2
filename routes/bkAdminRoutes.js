@@ -10,6 +10,8 @@ const {
   deleteAdmin,
   verifyBkAdminToken,
   requirePermission,
+  updateMyProfile,
+  changeMyPassword,
 } = require('../controllers/bkAdminController');
 
 // Public
@@ -19,6 +21,10 @@ router.post('/login', loginBkAdmin);
 router.use(verifyBkAdminToken);
 
 router.get('/me', getMe);
+
+// Profile sendiri
+router.put('/me', updateMyProfile);
+router.put('/change-password', changeMyPassword);
 
 // Manajemen admin — hanya super_admin
 router.get('/', requirePermission('canManageUsers'), getAdmins);
