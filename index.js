@@ -33,7 +33,7 @@ const apiRoutes = require('./routes');  // → routes/index.js
 const { initWhatsApp } = require('./config/whatsapp');
 
 const app = express();
-const port = process.env.PORT || 5005;
+const port = process.env.PORT || 5006;
 
 // --- 2. BUAT HTTP SERVER ---
 const server = http.createServer(app);
