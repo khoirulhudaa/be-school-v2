@@ -270,11 +270,11 @@ exports.updateMyProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Admin tidak ditemukan' });
     }
 
-    const { nama, email, photoUrl } = req.body;
+    const { nama, email } = req.body; // Hapus photoUrl dari destructuring
 
+    // Hanya update nama dan email
     if (nama) admin.nama = nama;
     if (email) admin.email = email.toLowerCase();
-    if (photoUrl !== undefined) admin.photoUrl = photoUrl;
 
     await admin.save();
 
