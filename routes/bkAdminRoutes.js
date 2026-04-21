@@ -1,16 +1,35 @@
+// routes/bkAdminRoutes.js
 const express = require('express');
 const router = express.Router();
-const bk = require('../controllers/bkAdminController');
+const {
+  loginBkAdmin,
+  getMe,
+  getAdmins,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+  verifyBkAdminToken,
+  requirePermission,
+} = require('../controllers/bkAdminController');
 
 // Public
-router.post('/login', bk.loginBkAdmin);
+router.post('/login', loginBkAdmin);
 
-router.get('/me', bk.getMe);
+// Protected — semua route di bawah butuh token
+router.use(verifyBkAdminToken);
+
+router.get('/me', getMe);
 
 // Manajemen admin — hanya super_admin
-router.get('/', bk.getAdmins);
-router.post('/', bk.createAdmin);
-router.put('/:id', bk.updateAdmin);
-router.delete('/:id', bk.deleteAdmin);
+router.get('/', requirePermission('canManageUsers'), getAdmins);
+router.post('/', requirePermission('canManageUsers'), createAdmin);
+router.put('/:id', requirePermission('canManageUsers'), updateAdmin);
+router.delete('/:id', requirePermission('canManageUsers'), deleteAdmin);
 
 module.exports = router;
+
+// ─────────────────────────────────────────────────────────────
+// Daftarkan di app.js / index.js:
+//   const bkAdminRoutes = require('./routes/bkAdminRoutes');
+//   app.use('/bk-admin', bkAdminRoutes);
+// ─────────────────────────────────────────────────────────────
