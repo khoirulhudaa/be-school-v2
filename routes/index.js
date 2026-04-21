@@ -46,6 +46,7 @@
     const aktivitasRoutes = require('./aktivitasRoutes');
     const biroJodohRoutes = require('./biroJodohRoutes');
     const konsellingRoutes = require('./bkRoutes');
+    const adminkonsellingRoutes = require('./bkAdminRoutes');
     const notificationRoutes = require('./notificationRoutes');
 
     router.use('/auth', require('./authRoutes'));
@@ -55,6 +56,7 @@
     
     // Route sensitif (create/update banyak) → pakai strictLimiter
     router.use('/bimbingan-konselling', konsellingRoutes);
+    router.use('/bk-admin', adminkonsellingRoutes);
     router.use('/berita', beritaRouter);
     router.use('/pengumuman', pengumumanRouter);
     router.use('/alumni', alumniRouter);
