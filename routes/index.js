@@ -55,8 +55,8 @@
     // ── Mount routes dengan limiter khusus ────────────────────────────────
     
     // Route sensitif (create/update banyak) → pakai strictLimiter
-    router.use('/bimbingan-konselling', konsellingRoutes);
     router.use('/bk-admin', adminkonsellingRoutes);
+    router.use('/bimbingan-konselling', konsellingRoutes);
     router.use('/berita', beritaRouter);
     router.use('/pengumuman', pengumumanRouter);
     router.use('/alumni', alumniRouter);
