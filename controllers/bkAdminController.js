@@ -104,7 +104,7 @@ exports.loginBkAdmin = async (req, res) => {
     // 3. Ambil logo sekolah
     const dataSekolah = await SchoolProfile.findOne({
       where: { schoolId: admin.schoolId },
-      attributes: ['logoUrl', 'namaSekolah'],
+      attributes: ['logoUrl', 'schoolName'],
     });
 
     // 4. Update lastLoginAt
