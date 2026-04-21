@@ -344,14 +344,27 @@ exports.login = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Akun dinonaktifkan' });
     }
 
+    // 1. Update last login tanpa menunggu (optional)
     user.lastLogin = new Date();
     await user.save();
 
-    // Ambil visi misi aktif sekolah ini
-    const visionMission = await VisionMission.findOne({
-      where: { schoolId: user.id, isActive: true },
-      attributes: ['vision', 'missions'],
-    });
+    // 2. PROTEKSI: Inisialisasi variabel visi-misi dengan null
+    let visionMission = null;
+
+    // 3. Hanya jalankan query JIKA user.id benar-benar ada (tidak undefined)
+    if (user.id) {
+      visionMission = await VisionMission.findOne({
+        where: { 
+          schoolId: user.id, 
+          isActive: true 
+        },
+        attributes: ['vision', 'missions'],
+      }).catch(err => {
+        // Jika query ini error (misal tabel belum dibuat), jangan gagalkan login
+        console.error("Gagal ambil visi misi:", err.message);
+        return null;
+      });
+    }
 
     const token = jwt.sign(
       { id: user.id, schoolId: user.id },
@@ -372,11 +385,13 @@ exports.login = async (req, res) => {
         lat: user.latitude,
         long: user.longitude,
         role: user.role,
-        visionMission: visionMission || null, // null jika belum diisi
+        // Jika visi misi tidak ketemu, tetap kirim null sesuai keinginanmu
+        visionMission: visionMission || null, 
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    // Error handling untuk kesalahan fatal (seperti koneksi DB mati)
+    res.status(500).json({ success: false, message: "Terjadi kesalahan internal server" });
   }
 };
 
